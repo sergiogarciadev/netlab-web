@@ -8,6 +8,13 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InstalledPluginDto {
+    pub id: String,
+    pub name: String,
+    pub state: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HostStateDto {
     pub id: String,
     pub name: String,
@@ -15,6 +22,11 @@ pub struct HostStateDto {
     pub ip: Option<String>,
     pub prefix_len: u8,
     pub gateway: Option<String>,
+    pub dns_servers: Vec<String>,
+    pub dns_cache: BTreeMap<String, String>,
+    pub files: BTreeMap<String, String>,
+    pub console_logs: Vec<String>,
+    pub plugins: Vec<InstalledPluginDto>,
     pub ping_replies: Vec<PingReply>,
 }
 
@@ -250,6 +262,60 @@ impl WasmSimulator {
         self.world.clear_packets();
     }
 
+    pub fn list_plugins(&self) -> Result<JsValue, JsValue> {
+        let list = self.world.plugin_registry.list_metadata();
+        serde_wasm_bindgen::to_value(&list)
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+    }
+
+    pub fn attach_plugin(&mut self, host_id: &str, plugin_id: &str) -> Result<(), JsValue> {
+        self.world
+            .attach_plugin(host_id, plugin_id)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    pub fn detach_plugin(&mut self, host_id: &str, plugin_id: &str) -> Result<(), JsValue> {
+        self.world
+            .detach_plugin(host_id, plugin_id)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    pub fn run_plugin_command(
+        &mut self,
+        host_id: &str,
+        plugin_id: &str,
+        cmd_json: &str,
+    ) -> Result<JsValue, JsValue> {
+        let cmd: serde_json::Value = serde_json::from_str(cmd_json)
+            .map_err(|e| JsValue::from_str(&format!("Invalid command JSON: {e}")))?;
+        let res = self
+            .world
+            .run_plugin_command(host_id, plugin_id, cmd)
+            .map_err(|e| JsValue::from_str(&e))?;
+        serde_wasm_bindgen::to_value(&res)
+            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+    }
+
+    pub fn set_host_dns(&mut self, host_id: &str, dns_ip: Option<String>) -> Result<(), JsValue> {
+        let parsed = match dns_ip {
+            Some(s) if !s.trim().is_empty() => Some(
+                s.trim()
+                    .parse::<Ipv4Addr>()
+                    .map_err(|e| JsValue::from_str(&format!("Invalid DNS IP: {e}")))?,
+            ),
+            _ => None,
+        };
+        self.world
+            .set_host_dns(host_id, parsed)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    pub fn exec_console_command(&mut self, host_id: &str, line: &str) -> Result<String, JsValue> {
+        self.world
+            .exec_console_command(host_id, line)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
     pub fn drain_events(&mut self) -> Result<JsValue, JsValue> {
         let animations = self.world.drain_animation_events();
         let packets = self.world.drain_packets();
@@ -266,6 +332,23 @@ impl WasmSimulator {
                     ip: h.ip_cidr.map(|(ip, _)| ip.to_string()),
                     prefix_len: h.ip_cidr.map(|(_, p)| p).unwrap_or(24),
                     gateway: h.gateway.map(|g| g.to_string()),
+                    dns_servers: h.dns_servers.iter().map(|d| d.to_string()).collect(),
+                    dns_cache: h
+                        .dns_cache
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.to_string()))
+                        .collect(),
+                    files: h.files.clone(),
+                    console_logs: h.console_logs.iter().rev().take(40).rev().cloned().collect(),
+                    plugins: h
+                        .plugins
+                        .iter()
+                        .map(|p| InstalledPluginDto {
+                            id: p.id().to_string(),
+                            name: p.name().to_string(),
+                            state: p.get_state(),
+                        })
+                        .collect(),
                     ping_replies: h.ping_replies.clone(),
                 };
                 (id.clone(), dto)

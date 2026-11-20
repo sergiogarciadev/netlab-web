@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use crate::cable::{CableConfig, CableDirection, Endpoint, VirtualCable};
 use crate::host::VirtualHost;
 use crate::packet::{CapturedPacket, PacketTap};
+use crate::plugin::PluginRegistry;
+use crate::plugins::register_builtin_plugins;
 use crate::router::{RouteEntry, RouterInterface, VirtualRouter};
 use crate::switch::{MacAddr, VirtualSwitch};
 
@@ -39,6 +41,7 @@ pub struct NetworkWorld {
     next_seed: u64,
     pub animation_events: Vec<EdgeAnimationEvent>,
     pub packet_tap: PacketTap,
+    pub plugin_registry: PluginRegistry,
 }
 
 impl Default for NetworkWorld {
@@ -49,6 +52,8 @@ impl Default for NetworkWorld {
 
 impl NetworkWorld {
     pub fn new() -> Self {
+        let mut plugin_registry = PluginRegistry::new();
+        register_builtin_plugins(&mut plugin_registry);
         Self {
             now_ms: 0,
             hosts: BTreeMap::new(),
@@ -60,6 +65,7 @@ impl NetworkWorld {
             next_seed: 0xdead_beef_cafe_babe,
             animation_events: Vec::new(),
             packet_tap: PacketTap::default(),
+            plugin_registry,
         }
     }
 
@@ -359,6 +365,154 @@ impl NetworkWorld {
 
     pub fn clear_packets(&mut self) {
         self.packet_tap.clear();
+    }
+
+    pub fn attach_plugin(&mut self, host_id: &str, plugin_id: &str) -> Result<(), String> {
+        let plugin = self.plugin_registry.create(plugin_id)?;
+        let now_ms = self.now_ms;
+        let host = self
+            .hosts
+            .get_mut(host_id)
+            .ok_or_else(|| format!("Host {host_id} not found"))?;
+        host.attach_plugin(plugin, now_ms);
+        Ok(())
+    }
+
+    pub fn detach_plugin(&mut self, host_id: &str, plugin_id: &str) -> Result<(), String> {
+        let now_ms = self.now_ms;
+        let host = self
+            .hosts
+            .get_mut(host_id)
+            .ok_or_else(|| format!("Host {host_id} not found"))?;
+        host.detach_plugin(plugin_id, now_ms);
+        Ok(())
+    }
+
+    pub fn run_plugin_command(
+        &mut self,
+        host_id: &str,
+        plugin_id: &str,
+        cmd: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let now_ms = self.now_ms;
+        let host = self
+            .hosts
+            .get_mut(host_id)
+            .ok_or_else(|| format!("Host {host_id} not found"))?;
+        host.run_plugin_command(plugin_id, cmd, now_ms)
+    }
+
+    pub fn set_host_dns(&mut self, host_id: &str, dns_ip: Option<Ipv4Addr>) -> Result<(), String> {
+        let host = self
+            .hosts
+            .get_mut(host_id)
+            .ok_or_else(|| format!("Host {host_id} not found"))?;
+        host.dns_servers.clear();
+        if let Some(ip) = dns_ip {
+            host.dns_servers.push(ip);
+        }
+        Ok(())
+    }
+
+    pub fn exec_console_command(&mut self, host_id: &str, line: &str) -> Result<String, String> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.is_empty() {
+            return Ok(String::new());
+        }
+        let now_ms = self.now_ms;
+        match parts[0] {
+            "help" => Ok("Commands: ip addr | arp -a | ping <ip|host> | dig <host> | curl <url> | ls | cat <file>".into()),
+            "ip" if parts.get(1) == Some(&"addr") => {
+                let host = self.hosts.get(host_id).ok_or("Host not found")?;
+                let ip_str = host
+                    .ip_cidr
+                    .map(|(ip, p)| format!("{ip}/{p}"))
+                    .unwrap_or_else(|| "unassigned".into());
+                let gw_str = host
+                    .gateway
+                    .map(|g| g.to_string())
+                    .unwrap_or_else(|| "none".into());
+                let dns_str = if host.dns_servers.is_empty() {
+                    "none".into()
+                } else {
+                    host.dns_servers
+                        .iter()
+                        .map(|d| d.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                Ok(format!(
+                    "eth0: mac {:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\n  inet {ip_str}\n  gateway {gw_str}\n  dns {dns_str}",
+                    host.mac[0], host.mac[1], host.mac[2], host.mac[3], host.mac[4], host.mac[5]
+                ))
+            }
+            "arp" => {
+                let host = self.hosts.get(host_id).ok_or("Host not found")?;
+                let mut lines = Vec::new();
+                for (host_name, ip) in &host.dns_cache {
+                    lines.push(format!("dns-cache: {host_name} -> {ip}"));
+                }
+                if lines.is_empty() {
+                    Ok("ARP/Neighbor table managed by smoltcp (see Packet Inspector for ARP frames).".into())
+                } else {
+                    Ok(lines.join("\n"))
+                }
+            }
+            "ls" => {
+                let host = self.hosts.get(host_id).ok_or("Host not found")?;
+                if host.files.is_empty() {
+                    Ok("(empty)".into())
+                } else {
+                    Ok(host.files.keys().cloned().collect::<Vec<_>>().join("\n"))
+                }
+            }
+            "cat" => {
+                let name = parts.get(1).ok_or("Usage: cat <filename>")?;
+                let host = self.hosts.get(host_id).ok_or("Host not found")?;
+                host.files
+                    .get(*name)
+                    .cloned()
+                    .ok_or_else(|| format!("File not found: {name}"))
+            }
+            "ping" => {
+                let target_str = parts.get(1).ok_or("Usage: ping <ip|hostname>")?;
+                let target_ip: Ipv4Addr = if let Ok(ip) = target_str.parse() {
+                    ip
+                } else {
+                    let host = self.hosts.get(host_id).ok_or("Host not found")?;
+                    *host
+                        .dns_cache
+                        .get(&target_str.to_lowercase())
+                        .ok_or_else(|| format!("Unknown host '{target_str}'. Run 'dig {target_str}' first."))?
+                };
+                self.send_ping(host_id, target_ip, 0x1234, 1)?;
+                Ok(format!("PING {target_ip} sent (watch simulation / replies)"))
+            }
+            "dig" => {
+                let hostname = parts.get(1).ok_or("Usage: dig <hostname>")?;
+                self.attach_plugin(host_id, "dns-resolver")?;
+                self.run_plugin_command(
+                    host_id,
+                    "dns-resolver",
+                    serde_json::json!({ "command": "lookup", "hostname": hostname }),
+                )?;
+                Ok(format!("DNS A query sent for {hostname}"))
+            }
+            "curl" => {
+                let url = parts.get(1).ok_or("Usage: curl <http://...> ")?;
+                self.attach_plugin(host_id, "http-client")?;
+                self.run_plugin_command(
+                    host_id,
+                    "http-client",
+                    serde_json::json!({ "command": "request", "method": "GET", "url": url }),
+                )?;
+                Ok(format!("HTTP GET {url} initiated"))
+            }
+            other => {
+                let _ = now_ms;
+                Err(format!("Unknown command '{other}'. Type 'help'."))
+            }
+        }
     }
 }
 

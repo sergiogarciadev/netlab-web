@@ -16,6 +16,7 @@ import type {
   HostState,
   LinkParams,
   NodeKind,
+  PluginMetadata,
   RouterState,
   SimulationBatch,
   SwitchState,
@@ -62,6 +63,8 @@ interface SimStore {
   cables: Record<string, CableStats>;
   activePackets: ActivePacketDot[];
   packets: CapturedPacket[];
+  pluginCatalog: PluginMetadata[];
+  consoleHistory: Record<string, string[]>;
 
   nextNodeSeq: Record<NodeKind, number>;
   nextCableSeq: number;
@@ -94,6 +97,11 @@ interface SimStore {
   sendPing: (hostId: string, targetIp: string) => void;
   exportPcap: () => void;
   clearPackets: () => void;
+  attachPlugin: (hostId: string, pluginId: string) => void;
+  detachPlugin: (hostId: string, pluginId: string) => void;
+  runPluginCommand: (hostId: string, pluginId: string, cmd: Record<string, unknown>) => void;
+  setHostDns: (hostId: string, dnsIp: string | null) => void;
+  execConsole: (hostId: string, line: string) => void;
   clearError: () => void;
 }
 
@@ -137,6 +145,8 @@ export const useSimStore = create<SimStore>((set, get) => ({
   cables: {},
   activePackets: [],
   packets: [],
+  pluginCatalog: [],
+  consoleHistory: {},
 
   nextNodeSeq: { host: 1, switch: 1, router: 1 },
   nextCableSeq: 1,
@@ -152,6 +162,16 @@ export const useSimStore = create<SimStore>((set, get) => ({
       const msg = event.data;
       if (msg.type === 'READY') {
         set({ ready: true });
+      } else if (msg.type === 'PLUGIN_CATALOG') {
+        set({ pluginCatalog: msg.plugins });
+      } else if (msg.type === 'CONSOLE_OUTPUT') {
+        set((state) => {
+          const prev = state.consoleHistory[msg.host_id] ?? [];
+          const next = [...prev, `$ ${msg.line}`, ...(msg.output ? [msg.output] : [])].slice(-80);
+          return {
+            consoleHistory: { ...state.consoleHistory, [msg.host_id]: next },
+          };
+        });
       } else if (msg.type === 'ERROR') {
         set({ lastError: msg.error });
       } else if (msg.type === 'PCAP_DATA') {
@@ -374,6 +394,31 @@ export const useSimStore = create<SimStore>((set, get) => ({
   clearPackets: () => {
     set({ packets: [] });
     get().postCommand({ type: 'CLEAR_PACKETS' });
+  },
+
+  attachPlugin: (hostId, pluginId) => {
+    get().postCommand({ type: 'ATTACH_PLUGIN', host_id: hostId, plugin_id: pluginId });
+  },
+
+  detachPlugin: (hostId, pluginId) => {
+    get().postCommand({ type: 'DETACH_PLUGIN', host_id: hostId, plugin_id: pluginId });
+  },
+
+  runPluginCommand: (hostId, pluginId, cmd) => {
+    get().postCommand({
+      type: 'RUN_PLUGIN_COMMAND',
+      host_id: hostId,
+      plugin_id: pluginId,
+      cmd_json: JSON.stringify(cmd),
+    });
+  },
+
+  setHostDns: (hostId, dnsIp) => {
+    get().postCommand({ type: 'SET_HOST_DNS', host_id: hostId, dns_ip: dnsIp });
+  },
+
+  execConsole: (hostId, line) => {
+    get().postCommand({ type: 'EXEC_CONSOLE', host_id: hostId, line });
   },
 
   clearError: () => set({ lastError: null }),

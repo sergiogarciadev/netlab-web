@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 
 use serde::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use smoltcp::wire::{
 };
 
 use crate::device::VirtualDevice;
+use crate::plugin::{AppPlugin, PluginContext};
 use crate::switch::MacAddr;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,6 +44,11 @@ pub struct VirtualHost {
     pub ping_socket: SocketHandle,
     pub pending_pings: Vec<PendingPing>,
     pub ping_replies: Vec<PingReply>,
+    pub dns_servers: Vec<Ipv4Addr>,
+    pub dns_cache: BTreeMap<String, Ipv4Addr>,
+    pub files: BTreeMap<String, String>,
+    pub console_logs: Vec<String>,
+    pub plugins: Vec<Box<dyn AppPlugin>>,
 }
 
 impl VirtualHost {
@@ -77,6 +84,11 @@ impl VirtualHost {
             ping_socket,
             pending_pings: Vec::new(),
             ping_replies: Vec::new(),
+            dns_servers: Vec::new(),
+            dns_cache: BTreeMap::new(),
+            files: BTreeMap::new(),
+            console_logs: Vec::new(),
+            plugins: Vec::new(),
         }
     }
 
@@ -136,11 +148,106 @@ impl VirtualHost {
         Ok(())
     }
 
-    /// Poll `smoltcp` interface and process incoming ICMP Echo Replies.
+    pub fn attach_plugin(&mut self, mut plugin: Box<dyn AppPlugin>, now_ms: u64) {
+        if self.plugins.iter().any(|p| p.id() == plugin.id()) {
+            return;
+        }
+        let mut ctx = PluginContext {
+            host_id: &self.id,
+            now_ms,
+            iface: &mut self.iface,
+            sockets: &mut self.sockets,
+            ip_cidr: &mut self.ip_cidr,
+            gateway: &mut self.gateway,
+            dns_servers: &mut self.dns_servers,
+            dns_cache: &mut self.dns_cache,
+            files: &mut self.files,
+            console_logs: &mut self.console_logs,
+        };
+        plugin.on_mount(&mut ctx);
+        self.plugins.push(plugin);
+    }
+
+    pub fn detach_plugin(&mut self, plugin_id: &str, now_ms: u64) {
+        let mut remaining = Vec::with_capacity(self.plugins.len());
+        for mut p in self.plugins.drain(..) {
+            if p.id() == plugin_id {
+                let mut ctx = PluginContext {
+                    host_id: &self.id,
+                    now_ms,
+                    iface: &mut self.iface,
+                    sockets: &mut self.sockets,
+                    ip_cidr: &mut self.ip_cidr,
+                    gateway: &mut self.gateway,
+                    dns_servers: &mut self.dns_servers,
+                    dns_cache: &mut self.dns_cache,
+                    files: &mut self.files,
+                    console_logs: &mut self.console_logs,
+                };
+                p.on_unmount(&mut ctx);
+            } else {
+                remaining.push(p);
+            }
+        }
+        self.plugins = remaining;
+    }
+
+    pub fn run_plugin_command(
+        &mut self,
+        plugin_id: &str,
+        cmd: serde_json::Value,
+        now_ms: u64,
+    ) -> Result<serde_json::Value, String> {
+        let mut plugins = std::mem::take(&mut self.plugins);
+        let mut result = Err(format!("Plugin '{plugin_id}' not installed on host {}", self.id));
+        for p in plugins.iter_mut() {
+            if p.id() == plugin_id {
+                let mut ctx = PluginContext {
+                    host_id: &self.id,
+                    now_ms,
+                    iface: &mut self.iface,
+                    sockets: &mut self.sockets,
+                    ip_cidr: &mut self.ip_cidr,
+                    gateway: &mut self.gateway,
+                    dns_servers: &mut self.dns_servers,
+                    dns_cache: &mut self.dns_cache,
+                    files: &mut self.files,
+                    console_logs: &mut self.console_logs,
+                };
+                result = p.handle_command(cmd, &mut ctx);
+                break;
+            }
+        }
+        self.plugins = plugins;
+        result
+    }
+
+    /// Poll `smoltcp` interface, installed plugins, and process incoming ICMP Echo Replies.
     pub fn poll(&mut self, now_ms: u64) {
         let timestamp = Instant::from_millis(now_ms as i64);
         self.iface
             .poll(timestamp, &mut self.device, &mut self.sockets);
+
+        // Poll all installed plugins
+        if !self.plugins.is_empty() {
+            let mut plugins = std::mem::take(&mut self.plugins);
+            for p in plugins.iter_mut() {
+                let mut ctx = PluginContext {
+                    host_id: &self.id,
+                    now_ms,
+                    iface: &mut self.iface,
+                    sockets: &mut self.sockets,
+                    ip_cidr: &mut self.ip_cidr,
+                    gateway: &mut self.gateway,
+                    dns_servers: &mut self.dns_servers,
+                    dns_cache: &mut self.dns_cache,
+                    files: &mut self.files,
+                    console_logs: &mut self.console_logs,
+                };
+                p.poll(&mut ctx);
+            }
+            self.plugins = plugins;
+        }
 
         let socket = self.sockets.get_mut::<icmp::Socket>(self.ping_socket);
         while socket.can_recv() {

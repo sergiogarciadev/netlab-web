@@ -18,6 +18,33 @@ export interface PingReply {
   received_at_ms: number;
 }
 
+export interface ConfigFieldSchema {
+  key: string;
+  label: string;
+  field_type: string;
+  default_value: unknown;
+}
+
+export interface PluginActionSchema {
+  command: string;
+  label: string;
+  fields: ConfigFieldSchema[];
+}
+
+export interface PluginMetadata {
+  id: string;
+  name: string;
+  description: string;
+  config_schema: ConfigFieldSchema[];
+  actions: PluginActionSchema[];
+}
+
+export interface InstalledPlugin {
+  id: string;
+  name: string;
+  state: Record<string, unknown>;
+}
+
 export interface HostState {
   id: string;
   name: string;
@@ -25,6 +52,11 @@ export interface HostState {
   ip: string | null;
   prefix_len: number;
   gateway: string | null;
+  dns_servers: string[];
+  dns_cache: Record<string, string>;
+  files: Record<string, string>;
+  console_logs: string[];
+  plugins: InstalledPlugin[];
   ping_replies: PingReply[];
 }
 
@@ -159,10 +191,22 @@ export type WorkerCommand =
       seq: number;
     }
   | { type: 'EXPORT_PCAP' }
-  | { type: 'CLEAR_PACKETS' };
+  | { type: 'CLEAR_PACKETS' }
+  | { type: 'ATTACH_PLUGIN'; host_id: string; plugin_id: string }
+  | { type: 'DETACH_PLUGIN'; host_id: string; plugin_id: string }
+  | {
+      type: 'RUN_PLUGIN_COMMAND';
+      host_id: string;
+      plugin_id: string;
+      cmd_json: string;
+    }
+  | { type: 'SET_HOST_DNS'; host_id: string; dns_ip: string | null }
+  | { type: 'EXEC_CONSOLE'; host_id: string; line: string };
 
 export type WorkerResponse =
   | { type: 'READY' }
+  | { type: 'PLUGIN_CATALOG'; plugins: PluginMetadata[] }
   | { type: 'BATCH'; batch: SimulationBatch }
   | { type: 'PCAP_DATA'; bytes: Uint8Array }
+  | { type: 'CONSOLE_OUTPUT'; host_id: string; line: string; output: string }
   | { type: 'ERROR'; error: string };

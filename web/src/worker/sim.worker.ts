@@ -1,5 +1,5 @@
 import init, { WasmSimulator } from '../wasm/net_sim_wasm';
-import type { SimulationBatch, WorkerCommand, WorkerResponse } from '../types/sim';
+import type { PluginMetadata, SimulationBatch, WorkerCommand, WorkerResponse } from '../types/sim';
 
 let sim: WasmSimulator | null = null;
 let playing = false;
@@ -42,6 +42,8 @@ self.onmessage = async (event: MessageEvent<WorkerCommand>) => {
       await init();
       sim = new WasmSimulator();
       startLoop();
+      const plugins = sim.list_plugins() as PluginMetadata[];
+      post({ type: 'PLUGIN_CATALOG', plugins });
       post({ type: 'READY' });
       flushBatch();
       return;
@@ -115,6 +117,28 @@ self.onmessage = async (event: MessageEvent<WorkerCommand>) => {
       case 'CLEAR_PACKETS':
         sim.clear_packets();
         break;
+      case 'ATTACH_PLUGIN':
+        sim.attach_plugin(cmd.host_id, cmd.plugin_id);
+        flushBatch();
+        break;
+      case 'DETACH_PLUGIN':
+        sim.detach_plugin(cmd.host_id, cmd.plugin_id);
+        flushBatch();
+        break;
+      case 'RUN_PLUGIN_COMMAND':
+        sim.run_plugin_command(cmd.host_id, cmd.plugin_id, cmd.cmd_json);
+        flushBatch();
+        break;
+      case 'SET_HOST_DNS':
+        sim.set_host_dns(cmd.host_id, cmd.dns_ip);
+        flushBatch();
+        break;
+      case 'EXEC_CONSOLE': {
+        const output = sim.exec_console_command(cmd.host_id, cmd.line);
+        post({ type: 'CONSOLE_OUTPUT', host_id: cmd.host_id, line: cmd.line, output });
+        flushBatch();
+        break;
+      }
     }
   } catch (err) {
     post({ type: 'ERROR', error: String(err) });
