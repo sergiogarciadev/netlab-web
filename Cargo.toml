@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/net-sim-core",
+    "crates/net-sim-wasm",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
