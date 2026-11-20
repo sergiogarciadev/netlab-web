@@ -106,6 +106,36 @@ export default function App() {
     initWorker();
   }, [initWorker]);
 
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+
+      const state = useSimStore.getState();
+      if (!state.ready) return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        state.setPlaying(!state.playing);
+      } else if (e.key === 's' || e.key === 'S') {
+        if (!state.playing) {
+          e.preventDefault();
+          state.stepOnce(10);
+        }
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (state.selectedNodeId) {
+          e.preventDefault();
+          state.removeNode(state.selectedNodeId);
+        } else if (state.selectedEdgeId) {
+          e.preventDefault();
+          state.removeEdge(state.selectedEdgeId);
+        }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-slate-950 text-slate-100">
       <Toolbar />

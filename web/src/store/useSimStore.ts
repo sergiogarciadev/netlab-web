@@ -23,6 +23,7 @@ import type {
   WorkerCommand,
   WorkerResponse,
 } from '../types/sim';
+import type { SnapshotEdge, SnapshotNode, TopologySnapshot } from '../labs/starterLabs';
 
 export interface ActivePacketDot {
   id: string;
@@ -102,6 +103,8 @@ interface SimStore {
   runPluginCommand: (hostId: string, pluginId: string, cmd: Record<string, unknown>) => void;
   setHostDns: (hostId: string, dnsIp: string | null) => void;
   execConsole: (hostId: string, line: string) => void;
+  loadTopology: (snapshot: TopologySnapshot) => void;
+  exportTopology: () => TopologySnapshot;
   clearError: () => void;
 }
 
@@ -419,6 +422,184 @@ export const useSimStore = create<SimStore>((set, get) => ({
 
   execConsole: (hostId, line) => {
     get().postCommand({ type: 'EXEC_CONSOLE', host_id: hostId, line });
+  },
+
+  loadTopology: (snapshot) => {
+    const post = get().postCommand;
+    post({ type: 'RESET_WORLD' });
+
+    const rfNodes: Node<NetNodeData>[] = snapshot.nodes.map((n) => ({
+      id: n.id,
+      type: n.kind,
+      position: n.position,
+      data: { kind: n.kind, label: n.name },
+    }));
+
+    const rfEdges: Edge<NetEdgeData>[] = snapshot.edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      type: 'packetEdge',
+      data: { portA: e.portA, portB: e.portB, params: e.params },
+    }));
+
+    const maxSeq = (prefix: string) => {
+      let max = 0;
+      for (const n of snapshot.nodes) {
+        if (n.id.startsWith(prefix)) {
+          const num = Number(n.id.slice(prefix.length));
+          if (!Number.isNaN(num)) max = Math.max(max, num);
+        }
+      }
+      return max + 1;
+    };
+
+    let maxCable = 0;
+    for (const e of snapshot.edges) {
+      if (e.id.startsWith('c')) {
+        const num = Number(e.id.slice(1));
+        if (!Number.isNaN(num)) maxCable = Math.max(maxCable, num);
+      }
+    }
+
+    set({
+      nodes: rfNodes,
+      edges: rfEdges,
+      packets: [],
+      activePackets: [],
+      consoleHistory: {},
+      selectedNodeId: null,
+      selectedEdgeId: null,
+      nextNodeSeq: {
+        host: maxSeq('h'),
+        switch: maxSeq('sw'),
+        router: maxSeq('r'),
+      },
+      nextCableSeq: maxCable + 1,
+    });
+
+    for (const n of snapshot.nodes) {
+      post({ type: 'ADD_NODE', id: n.id, kind: n.kind, name: n.name });
+    }
+    for (const e of snapshot.edges) {
+      post({
+        type: 'CONNECT_NODES',
+        cable_id: e.id,
+        node_a: e.source,
+        port_a: e.portA,
+        node_b: e.target,
+        port_b: e.portB,
+      });
+      post({
+        type: 'UPDATE_LINK_PARAMS',
+        cable_id: e.id,
+        ...e.params,
+      });
+    }
+    for (const n of snapshot.nodes) {
+      if (n.kind === 'host') {
+        if (n.ip) {
+          post({
+            type: 'CONFIGURE_INTERFACE',
+            node_id: n.id,
+            port_id: 'eth0',
+            ip: n.ip,
+            prefix_len: n.prefix_len ?? 24,
+            gateway: n.gateway ?? null,
+          });
+        }
+        if (n.dns) {
+          post({ type: 'SET_HOST_DNS', host_id: n.id, dns_ip: n.dns });
+        }
+        for (const p of n.plugins ?? []) {
+          post({ type: 'ATTACH_PLUGIN', host_id: n.id, plugin_id: p.id });
+          if (p.config) {
+            post({
+              type: 'RUN_PLUGIN_COMMAND',
+              host_id: n.id,
+              plugin_id: p.id,
+              cmd_json: JSON.stringify({ command: 'configure', config: p.config }),
+            });
+          }
+        }
+      } else if (n.kind === 'router') {
+        for (const iface of n.router_interfaces ?? []) {
+          post({
+            type: 'CONFIGURE_INTERFACE',
+            node_id: n.id,
+            port_id: iface.id,
+            ip: iface.ip,
+            prefix_len: iface.prefix_len,
+            gateway: null,
+          });
+        }
+      }
+    }
+
+    for (const ping of snapshot.initialPings ?? []) {
+      const seq = get().nextPingSeq;
+      set({ nextPingSeq: seq + 1 });
+      post({
+        type: 'SEND_PING',
+        host_id: ping.host_id,
+        target_ip: ping.target_ip,
+        ident: 0x1234,
+        seq,
+      });
+    }
+
+    get().setPlaying(true);
+  },
+
+  exportTopology: () => {
+    const state = get();
+    const nodes: SnapshotNode[] = state.nodes.map((n) => {
+      const base: SnapshotNode = {
+        id: n.id,
+        kind: n.data.kind,
+        name: n.data.label,
+        position: n.position,
+      };
+      if (n.data.kind === 'host') {
+        const h = state.hosts[n.id];
+        if (h) {
+          base.ip = h.ip;
+          base.prefix_len = h.prefix_len;
+          base.gateway = h.gateway;
+          base.dns = h.dns_servers[0] ?? null;
+          base.plugins = h.plugins.map((p) => ({
+            id: p.id,
+            config: p.state,
+          }));
+        }
+      } else if (n.data.kind === 'router') {
+        const r = state.routers[n.id];
+        if (r) {
+          base.router_interfaces = r.interfaces.map((i) => ({
+            id: i.id,
+            ip: i.ip,
+            prefix_len: i.prefix_len,
+          }));
+        }
+      }
+      return base;
+    });
+
+    const edges: SnapshotEdge[] = state.edges.map((e) => ({
+      id: e.id,
+      source: e.source,
+      portA: e.data?.portA ?? 'eth0',
+      target: e.target,
+      portB: e.data?.portB ?? 'eth0',
+      params: e.data?.params ?? { latency_ms: 5, jitter_ms: 0, loss_percent: 0, up: true },
+    }));
+
+    return {
+      version: 1,
+      name: 'NetLab Exported Topology',
+      nodes,
+      edges,
+    };
   },
 
   clearError: () => set({ lastError: null }),

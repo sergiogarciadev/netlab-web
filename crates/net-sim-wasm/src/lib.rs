@@ -100,6 +100,10 @@ impl WasmSimulator {
         }
     }
 
+    pub fn reset(&mut self) {
+        self.world = NetworkWorld::new();
+    }
+
     pub fn add_node(&mut self, id: &str, kind: &str, name: &str) -> Result<(), JsValue> {
         match kind {
             "host" => {

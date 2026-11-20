@@ -145,6 +145,7 @@ export interface SimulationBatch {
 
 export type WorkerCommand =
   | { type: 'INIT' }
+  | { type: 'RESET_WORLD' }
   | { type: 'SET_PLAYING'; playing: boolean }
   | { type: 'SET_SPEED'; speed: number }
   | { type: 'STEP'; delta_ms: number }

@@ -55,6 +55,11 @@ self.onmessage = async (event: MessageEvent<WorkerCommand>) => {
     }
 
     switch (cmd.type) {
+      case 'RESET_WORLD':
+        sim.reset();
+        msAccumulator = 0;
+        flushBatch();
+        break;
       case 'SET_PLAYING':
         playing = cmd.playing;
         break;
