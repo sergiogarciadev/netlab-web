@@ -110,6 +110,10 @@ self.onmessage = async (event: MessageEvent<WorkerCommand>) => {
         );
         flushBatch();
         break;
+      case 'REMOVE_ROUTER_ROUTE':
+        sim.remove_router_route(cmd.router_id, cmd.index);
+        flushBatch();
+        break;
       case 'SEND_PING':
         sim.send_ping(cmd.host_id, cmd.target_ip, cmd.ident, cmd.seq);
         flushBatch();

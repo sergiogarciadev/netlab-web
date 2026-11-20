@@ -252,6 +252,15 @@ impl NetworkWorld {
         Ok(())
     }
 
+    pub fn remove_router_route(&mut self, router_id: &str, index: usize) -> Result<(), String> {
+        let router = self
+            .routers
+            .get_mut(router_id)
+            .ok_or_else(|| format!("Router {router_id} not found"))?;
+        router.remove_route(index);
+        Ok(())
+    }
+
     pub fn send_ping(
         &mut self,
         host_id: &str,

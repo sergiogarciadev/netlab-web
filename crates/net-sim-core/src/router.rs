@@ -98,6 +98,12 @@ impl VirtualRouter {
         self.routes.push(route);
     }
 
+    pub fn remove_route(&mut self, index: usize) {
+        if index < self.routes.len() {
+            self.routes.remove(index);
+        }
+    }
+
     /// Longest-prefix match across directly connected subnets and static routes.
     pub fn lookup_route(&self, dst: Ipv4Addr) -> Option<RouteEntry> {
         let mut best: Option<(u8, RouteEntry)> = None;

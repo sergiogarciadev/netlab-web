@@ -89,6 +89,8 @@ export function InspectorPanel() {
   const detachPlugin = useSimStore((s) => s.detachPlugin);
   const runPluginCommand = useSimStore((s) => s.runPluginCommand);
   const execConsole = useSimStore((s) => s.execConsole);
+  const addRouterRoute = useSimStore((s) => s.addRouterRoute);
+  const removeRouterRoute = useSimStore((s) => s.removeRouterRoute);
   const removeNode = useSimStore((s) => s.removeNode);
   const removeEdge = useSimStore((s) => s.removeEdge);
   const selectNode = useSimStore((s) => s.selectNode);
@@ -109,6 +111,11 @@ export function InspectorPanel() {
   const [pingTarget, setPingTarget] = useState('');
   const [selectedPluginToAdd, setSelectedPluginToAdd] = useState('');
   const [consoleInput, setConsoleInput] = useState('');
+
+  const [routeNet, setRouteNet] = useState('');
+  const [routePrefix, setRoutePrefix] = useState('24');
+  const [routeNextHop, setRouteNextHop] = useState('');
+  const [routeOutIface, setRouteOutIface] = useState('eth0');
 
   const [routerIfaces, setRouterIfaces] = useState<Record<string, { ip: string; prefix: string }>>({});
 
@@ -551,6 +558,88 @@ export function InspectorPanel() {
                   );
                 })
               )}
+
+              <div className="space-y-2 border-t border-slate-800 pt-3">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Routing Rules (Static Routes)
+                </div>
+                <div className="text-[10px] text-slate-500">
+                  Connected subnets are routed automatically. Add static routes for remote networks.
+                </div>
+
+                {router.routes.length > 0 && (
+                  <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-[11px]">
+                    {router.routes.map((r, idx) => (
+                      <div key={idx} className="flex items-center justify-between text-slate-300">
+                        <span>
+                          {r.network}/{r.prefix_len} → {r.next_hop ?? 'direct'} ({r.out_iface})
+                        </span>
+                        <button
+                          onClick={() => removeRouterRoute(router.id, idx)}
+                          className="rounded p-0.5 text-slate-500 hover:text-red-400"
+                          title="Delete route"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-1.5 rounded-lg border border-slate-800 bg-slate-950 p-2.5">
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <input
+                      value={routeNet}
+                      onChange={(e) => setRouteNet(e.target.value)}
+                      placeholder="10.0.3.0"
+                      className="col-span-2 rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                    />
+                    <input
+                      value={routePrefix}
+                      onChange={(e) => setRoutePrefix(e.target.value)}
+                      placeholder="24"
+                      className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <input
+                      value={routeNextHop}
+                      onChange={(e) => setRouteNextHop(e.target.value)}
+                      placeholder="Next hop IP (opt)"
+                      className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                    />
+                    <select
+                      value={routeOutIface}
+                      onChange={(e) => setRouteOutIface(e.target.value)}
+                      className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                    >
+                      {router.interfaces.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.id}
+                        </option>
+                      ))}
+                      {router.interfaces.length === 0 && <option value="eth0">eth0</option>}
+                    </select>
+                  </div>
+                  <button
+                    onClick={() => {
+                      if (!routeNet.trim()) return;
+                      addRouterRoute(
+                        router.id,
+                        routeNet.trim(),
+                        Number(routePrefix) || 24,
+                        routeNextHop.trim() || null,
+                        routeOutIface
+                      );
+                      setRouteNet('');
+                      setRouteNextHop('');
+                    }}
+                    className="w-full rounded bg-amber-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-amber-500"
+                  >
+                    Add Route Rule
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>

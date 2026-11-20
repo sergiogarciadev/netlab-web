@@ -7,6 +7,13 @@ use net_sim_core::{
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
+fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
+    let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    value
+        .serialize(&serializer)
+        .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InstalledPluginDto {
     pub id: String,
@@ -238,6 +245,12 @@ impl WasmSimulator {
             .map_err(|e| JsValue::from_str(&e))
     }
 
+    pub fn remove_router_route(&mut self, router_id: &str, index: usize) -> Result<(), JsValue> {
+        self.world
+            .remove_router_route(router_id, index)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
     pub fn send_ping(
         &mut self,
         host_id: &str,
@@ -268,8 +281,7 @@ impl WasmSimulator {
 
     pub fn list_plugins(&self) -> Result<JsValue, JsValue> {
         let list = self.world.plugin_registry.list_metadata();
-        serde_wasm_bindgen::to_value(&list)
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+        to_js(&list)
     }
 
     pub fn attach_plugin(&mut self, host_id: &str, plugin_id: &str) -> Result<(), JsValue> {
@@ -296,8 +308,7 @@ impl WasmSimulator {
             .world
             .run_plugin_command(host_id, plugin_id, cmd)
             .map_err(|e| JsValue::from_str(&e))?;
-        serde_wasm_bindgen::to_value(&res)
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+        to_js(&res)
     }
 
     pub fn set_host_dns(&mut self, host_id: &str, dns_ip: Option<String>) -> Result<(), JsValue> {
@@ -429,7 +440,6 @@ impl WasmSimulator {
             cables,
         };
 
-        serde_wasm_bindgen::to_value(&batch)
-            .map_err(|e| JsValue::from_str(&format!("Serialization error: {e}")))
+        to_js(&batch)
     }
 }

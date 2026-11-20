@@ -103,6 +103,14 @@ interface SimStore {
   runPluginCommand: (hostId: string, pluginId: string, cmd: Record<string, unknown>) => void;
   setHostDns: (hostId: string, dnsIp: string | null) => void;
   execConsole: (hostId: string, line: string) => void;
+  addRouterRoute: (
+    routerId: string,
+    network: string,
+    prefixLen: number,
+    nextHop: string | null,
+    outIface: string
+  ) => void;
+  removeRouterRoute: (routerId: string, index: number) => void;
   loadTopology: (snapshot: TopologySnapshot) => void;
   exportTopology: () => TopologySnapshot;
   clearError: () => void;
@@ -422,6 +430,21 @@ export const useSimStore = create<SimStore>((set, get) => ({
 
   execConsole: (hostId, line) => {
     get().postCommand({ type: 'EXEC_CONSOLE', host_id: hostId, line });
+  },
+
+  addRouterRoute: (routerId, network, prefixLen, nextHop, outIface) => {
+    get().postCommand({
+      type: 'ADD_ROUTER_ROUTE',
+      router_id: routerId,
+      network,
+      prefix_len: prefixLen,
+      next_hop: nextHop,
+      out_iface: outIface,
+    });
+  },
+
+  removeRouterRoute: (routerId, index) => {
+    get().postCommand({ type: 'REMOVE_ROUTER_ROUTE', router_id: routerId, index });
   },
 
   loadTopology: (snapshot) => {

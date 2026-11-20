@@ -185,6 +185,11 @@ export type WorkerCommand =
       out_iface: string;
     }
   | {
+      type: 'REMOVE_ROUTER_ROUTE';
+      router_id: string;
+      index: number;
+    }
+  | {
       type: 'SEND_PING';
       host_id: string;
       target_ip: string;
