@@ -16,6 +16,7 @@ import { PacketEdge } from './components/edges/PacketEdge';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
 import { InspectorPanel } from './components/InspectorPanel';
+import { PacketInspector } from './components/PacketInspector';
 import { useSimStore } from './store/useSimStore';
 import type { NodeKind } from './types/sim';
 
@@ -118,9 +119,12 @@ export default function App() {
       )}
       <div className="flex flex-1 overflow-hidden">
         <Sidebar />
-        <ReactFlowProvider>
-          <NetworkCanvas />
-        </ReactFlowProvider>
+        <div className="flex flex-1 flex-col overflow-hidden">
+          <ReactFlowProvider>
+            <NetworkCanvas />
+          </ReactFlowProvider>
+          <PacketInspector />
+        </div>
         <InspectorPanel />
       </div>
     </div>

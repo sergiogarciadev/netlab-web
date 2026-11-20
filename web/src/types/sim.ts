@@ -70,9 +70,41 @@ export interface LinkParams {
   up: boolean;
 }
 
+export interface ProtocolLayer {
+  name: string;
+  fields: [string, string][];
+}
+
+export interface PacketSummary {
+  src_mac: string;
+  dst_mac: string;
+  ethertype: string;
+  src_ip: string | null;
+  dst_ip: string | null;
+  protocol: string;
+  src_port: number | null;
+  dst_port: number | null;
+  info: string;
+  layers: ProtocolLayer[];
+}
+
+export interface CapturedPacket {
+  seq: number;
+  timestamp_ms: number;
+  cable_id: string;
+  from_node: string;
+  from_port: string;
+  to_node: string;
+  to_port: string;
+  length: number;
+  raw: number[];
+  summary: PacketSummary;
+}
+
 export interface SimulationBatch {
   now_ms: number;
   animations: EdgeAnimationEvent[];
+  packets: CapturedPacket[];
   hosts: Record<string, HostState>;
   switches: Record<string, SwitchState>;
   routers: Record<string, RouterState>;
@@ -125,9 +157,12 @@ export type WorkerCommand =
       target_ip: string;
       ident: number;
       seq: number;
-    };
+    }
+  | { type: 'EXPORT_PCAP' }
+  | { type: 'CLEAR_PACKETS' };
 
 export type WorkerResponse =
   | { type: 'READY' }
   | { type: 'BATCH'; batch: SimulationBatch }
+  | { type: 'PCAP_DATA'; bytes: Uint8Array }
   | { type: 'ERROR'; error: string };

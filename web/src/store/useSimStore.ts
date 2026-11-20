@@ -11,6 +11,7 @@ import {
 } from '@xyflow/react';
 import type {
   CableStats,
+  CapturedPacket,
   EdgeAnimationEvent,
   HostState,
   LinkParams,
@@ -60,6 +61,7 @@ interface SimStore {
   routers: Record<string, RouterState>;
   cables: Record<string, CableStats>;
   activePackets: ActivePacketDot[];
+  packets: CapturedPacket[];
 
   nextNodeSeq: Record<NodeKind, number>;
   nextCableSeq: number;
@@ -90,6 +92,8 @@ interface SimStore {
   ) => void;
   updateLinkParams: (cableId: string, params: LinkParams) => void;
   sendPing: (hostId: string, targetIp: string) => void;
+  exportPcap: () => void;
+  clearPackets: () => void;
   clearError: () => void;
 }
 
@@ -132,6 +136,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
   routers: {},
   cables: {},
   activePackets: [],
+  packets: [],
 
   nextNodeSeq: { host: 1, switch: 1, router: 1 },
   nextCableSeq: 1,
@@ -149,6 +154,16 @@ export const useSimStore = create<SimStore>((set, get) => ({
         set({ ready: true });
       } else if (msg.type === 'ERROR') {
         set({ lastError: msg.error });
+      } else if (msg.type === 'PCAP_DATA') {
+        const blob = new Blob([new Uint8Array(msg.bytes)], {
+          type: 'application/vnd.tcpdump.pcap',
+        });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `netlab-capture-${Date.now()}.pcap`;
+        a.click();
+        URL.revokeObjectURL(url);
       } else if (msg.type === 'BATCH') {
         const batch: SimulationBatch = msg.batch;
         const nowPerf = performance.now();
@@ -174,6 +189,10 @@ export const useSimStore = create<SimStore>((set, get) => ({
           const validExisting = state.activePackets.filter(
             (p) => nowPerf - p.createdAtPerfMs < p.durationMs + 50
           );
+          const mergedPackets =
+            batch.packets && batch.packets.length > 0
+              ? [...state.packets, ...batch.packets].slice(-2000)
+              : state.packets;
           return {
             nowMs: batch.now_ms,
             hosts: batch.hosts,
@@ -181,6 +200,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
             routers: batch.routers,
             cables: batch.cables,
             activePackets: [...validExisting, ...newDots].slice(-120),
+            packets: mergedPackets,
           };
         });
       }
@@ -345,6 +365,15 @@ export const useSimStore = create<SimStore>((set, get) => ({
       ident: 0x1234,
       seq,
     });
+  },
+
+  exportPcap: () => {
+    get().postCommand({ type: 'EXPORT_PCAP' });
+  },
+
+  clearPackets: () => {
+    set({ packets: [] });
+    get().postCommand({ type: 'CLEAR_PACKETS' });
   },
 
   clearError: () => set({ lastError: null }),

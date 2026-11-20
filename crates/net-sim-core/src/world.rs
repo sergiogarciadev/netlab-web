@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cable::{CableConfig, CableDirection, Endpoint, VirtualCable};
 use crate::host::VirtualHost;
+use crate::packet::{CapturedPacket, PacketTap};
 use crate::router::{RouteEntry, RouterInterface, VirtualRouter};
 use crate::switch::{MacAddr, VirtualSwitch};
 
@@ -37,6 +38,7 @@ pub struct NetworkWorld {
     next_mac_seq: u64,
     next_seed: u64,
     pub animation_events: Vec<EdgeAnimationEvent>,
+    pub packet_tap: PacketTap,
 }
 
 impl Default for NetworkWorld {
@@ -57,6 +59,7 @@ impl NetworkWorld {
             next_mac_seq: 1,
             next_seed: 0xdead_beef_cafe_babe,
             animation_events: Vec::new(),
+            packet_tap: PacketTap::default(),
         }
     }
 
@@ -309,6 +312,22 @@ impl NetworkWorld {
                 if let Some(cable) = self.cables.get_mut(cable_id) {
                     let size = frame.len();
                     let protocol = classify_frame_protocol(&frame);
+                    let to_ep = if cable.end_a.node_id == from_ep.node_id
+                        && cable.end_a.port_id == from_ep.port_id
+                    {
+                        cable.end_b.clone()
+                    } else {
+                        cable.end_a.clone()
+                    };
+                    self.packet_tap.record(
+                        now_ms,
+                        cable_id.clone(),
+                        from_ep.node_id.clone(),
+                        from_ep.port_id.clone(),
+                        to_ep.node_id,
+                        to_ep.port_id,
+                        &frame,
+                    );
                     if let Some((direction, deliver_at_ms)) =
                         cable.transmit(&from_ep.node_id, &from_ep.port_id, frame, now_ms)
                     {
@@ -328,6 +347,18 @@ impl NetworkWorld {
 
     pub fn drain_animation_events(&mut self) -> Vec<EdgeAnimationEvent> {
         std::mem::take(&mut self.animation_events)
+    }
+
+    pub fn drain_packets(&mut self) -> Vec<CapturedPacket> {
+        self.packet_tap.drain_batch()
+    }
+
+    pub fn export_pcap(&self) -> Vec<u8> {
+        self.packet_tap.export_pcap()
+    }
+
+    pub fn clear_packets(&mut self) {
+        self.packet_tap.clear();
     }
 }
 

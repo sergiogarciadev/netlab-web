@@ -107,6 +107,14 @@ self.onmessage = async (event: MessageEvent<WorkerCommand>) => {
         sim.send_ping(cmd.host_id, cmd.target_ip, cmd.ident, cmd.seq);
         flushBatch();
         break;
+      case 'EXPORT_PCAP': {
+        const bytes = sim.export_pcap();
+        post({ type: 'PCAP_DATA', bytes });
+        break;
+      }
+      case 'CLEAR_PACKETS':
+        sim.clear_packets();
+        break;
     }
   } catch (err) {
     post({ type: 'ERROR', error: String(err) });

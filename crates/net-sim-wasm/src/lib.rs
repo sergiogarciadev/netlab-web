@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 
 use net_sim_core::{
-    CableConfig, EdgeAnimationEvent, Endpoint, NetworkWorld, PingReply, RouteEntry,
+    CableConfig, CapturedPacket, EdgeAnimationEvent, Endpoint, NetworkWorld, PingReply, RouteEntry,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -54,6 +54,7 @@ pub struct CableStatsDto {
 pub struct SimulationBatchDto {
     pub now_ms: u64,
     pub animations: Vec<EdgeAnimationEvent>,
+    pub packets: Vec<CapturedPacket>,
     pub hosts: BTreeMap<String, HostStateDto>,
     pub switches: BTreeMap<String, SwitchStateDto>,
     pub routers: BTreeMap<String, RouterStateDto>,
@@ -241,8 +242,17 @@ impl WasmSimulator {
         self.world.step(delta_ms as u64);
     }
 
+    pub fn export_pcap(&self) -> Vec<u8> {
+        self.world.export_pcap()
+    }
+
+    pub fn clear_packets(&mut self) {
+        self.world.clear_packets();
+    }
+
     pub fn drain_events(&mut self) -> Result<JsValue, JsValue> {
         let animations = self.world.drain_animation_events();
+        let packets = self.world.drain_packets();
 
         let hosts = self
             .world
@@ -325,6 +335,7 @@ impl WasmSimulator {
         let batch = SimulationBatchDto {
             now_ms: self.world.now_ms,
             animations,
+            packets,
             hosts,
             switches,
             routers,
