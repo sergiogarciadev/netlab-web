@@ -1,0 +1,40 @@
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background-color: #020617;
+    color: #f1f5f9;
+  }
+}
+
+.react-flow__node {
+  cursor: pointer;
+}
+
+.react-flow__controls {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+}
+
+.react-flow__controls-button {
+  background: #0f172a;
+  border-bottom: 1px solid #1e293b;
+  fill: #94a3b8;
+}
+
+.react-flow__controls-button:hover {
+  background: #1e293b;
+  fill: #f8fafc;
+}
+
+.react-flow__minimap {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  border-radius: 8px;
+}
