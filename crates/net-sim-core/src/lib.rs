@@ -1,5 +1,6 @@
 pub mod cable;
 pub mod device;
+pub mod firewall;
 pub mod host;
 pub mod packet;
 pub mod plugin;
@@ -10,6 +11,7 @@ pub mod world;
 
 pub use cable::{CableConfig, CableDirection, Endpoint, VirtualCable};
 pub use device::VirtualDevice;
+pub use firewall::{FirewallAction, FirewallProtocol, FirewallRule, VirtualFirewall};
 pub use host::{PendingPing, PingReply, VirtualHost};
 pub use packet::{CapturedPacket, PacketSummary, PacketTap, ProtocolLayer};
 pub use plugin::{

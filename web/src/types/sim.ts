@@ -1,4 +1,4 @@
-export type NodeKind = 'host' | 'switch' | 'router';
+export type NodeKind = 'host' | 'switch' | 'router' | 'firewall';
 
 export type CableDirection = 'AToB' | 'BToA';
 
@@ -88,6 +88,31 @@ export interface RouterState {
   routes: RouteEntry[];
 }
 
+export type FirewallAction = 'Allow' | 'Deny';
+export type FirewallProtocol = 'Any' | 'ICMP' | 'TCP' | 'UDP';
+
+export interface FirewallRule {
+  id: number;
+  action: FirewallAction;
+  protocol: FirewallProtocol;
+  src_cidr: string | null;
+  dst_cidr: string | null;
+  dst_port: number | null;
+  hits: number;
+}
+
+export interface FirewallState {
+  id: string;
+  name: string;
+  interfaces: RouterInterfaceState[];
+  routes: RouteEntry[];
+  rules: FirewallRule[];
+  default_policy: FirewallAction;
+  packets_allowed: number;
+  packets_dropped: number;
+  logs: string[];
+}
+
 export interface CableStats {
   id: string;
   packets_sent: number;
@@ -140,6 +165,7 @@ export interface SimulationBatch {
   hosts: Record<string, HostState>;
   switches: Record<string, SwitchState>;
   routers: Record<string, RouterState>;
+  firewalls: Record<string, FirewallState>;
   cables: Record<string, CableStats>;
 }
 
@@ -189,6 +215,17 @@ export type WorkerCommand =
       router_id: string;
       index: number;
     }
+  | {
+      type: 'ADD_FIREWALL_RULE';
+      fw_id: string;
+      action: string;
+      protocol: string;
+      src_cidr: string | null;
+      dst_cidr: string | null;
+      dst_port: number | null;
+    }
+  | { type: 'REMOVE_FIREWALL_RULE'; fw_id: string; rule_id: number }
+  | { type: 'SET_FIREWALL_POLICY'; fw_id: string; policy: string }
   | {
       type: 'SEND_PING';
       host_id: string;

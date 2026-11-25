@@ -12,6 +12,7 @@ import {
 import { HostNode } from './components/nodes/HostNode';
 import { SwitchNode } from './components/nodes/SwitchNode';
 import { RouterNode } from './components/nodes/RouterNode';
+import { FirewallNode } from './components/nodes/FirewallNode';
 import { PacketEdge } from './components/edges/PacketEdge';
 import { Toolbar } from './components/Toolbar';
 import { Sidebar } from './components/Sidebar';
@@ -24,6 +25,7 @@ const nodeTypes: NodeTypes = {
   host: HostNode,
   switch: SwitchNode,
   router: RouterNode,
+  firewall: FirewallNode,
 };
 
 const edgeTypes: EdgeTypes = {
@@ -88,7 +90,13 @@ function NetworkCanvas() {
         <Controls />
         <MiniMap
           nodeColor={(n) =>
-            n.type === 'host' ? '#38bdf8' : n.type === 'switch' ? '#34d399' : '#fbbf24'
+            n.type === 'host'
+              ? '#38bdf8'
+              : n.type === 'switch'
+                ? '#34d399'
+                : n.type === 'firewall'
+                  ? '#fb7185'
+                  : '#fbbf24'
           }
           maskColor="rgba(2, 6, 23, 0.75)"
         />

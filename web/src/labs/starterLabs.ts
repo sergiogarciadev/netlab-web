@@ -1,4 +1,4 @@
-import type { LinkParams, NodeKind } from '../types/sim';
+import type { FirewallAction, FirewallProtocol, LinkParams, NodeKind } from '../types/sim';
 
 export interface SnapshotPlugin {
   id: string;
@@ -18,6 +18,14 @@ export interface SnapshotNode {
     id: string;
     ip: string | null;
     prefix_len: number;
+  }>;
+  firewall_policy?: FirewallAction;
+  firewall_rules?: Array<{
+    action: FirewallAction;
+    protocol: FirewallProtocol;
+    src_cidr: string | null;
+    dst_cidr: string | null;
+    dst_port: number | null;
   }>;
   plugins?: SnapshotPlugin[];
 }

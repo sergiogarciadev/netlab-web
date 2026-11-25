@@ -77,6 +77,7 @@ export function InspectorPanel() {
   const hosts = useSimStore((s) => s.hosts);
   const switches = useSimStore((s) => s.switches);
   const routers = useSimStore((s) => s.routers);
+  const firewalls = useSimStore((s) => s.firewalls);
   const cables = useSimStore((s) => s.cables);
   const pluginCatalog = useSimStore((s) => s.pluginCatalog);
   const consoleHistory = useSimStore((s) => s.consoleHistory);
@@ -91,6 +92,9 @@ export function InspectorPanel() {
   const execConsole = useSimStore((s) => s.execConsole);
   const addRouterRoute = useSimStore((s) => s.addRouterRoute);
   const removeRouterRoute = useSimStore((s) => s.removeRouterRoute);
+  const addFirewallRule = useSimStore((s) => s.addFirewallRule);
+  const removeFirewallRule = useSimStore((s) => s.removeFirewallRule);
+  const setFirewallPolicy = useSimStore((s) => s.setFirewallPolicy);
   const removeNode = useSimStore((s) => s.removeNode);
   const removeEdge = useSimStore((s) => s.removeEdge);
   const selectNode = useSimStore((s) => s.selectNode);
@@ -102,6 +106,7 @@ export function InspectorPanel() {
   const host = selectedNodeId ? hosts[selectedNodeId] : undefined;
   const sw = selectedNodeId ? switches[selectedNodeId] : undefined;
   const router = selectedNodeId ? routers[selectedNodeId] : undefined;
+  const firewall = selectedNodeId ? firewalls[selectedNodeId] : undefined;
 
   const [hostTab, setHostTab] = useState<HostTab>('interfaces');
   const [ipInput, setIpInput] = useState('');
@@ -117,6 +122,12 @@ export function InspectorPanel() {
   const [routeNextHop, setRouteNextHop] = useState('');
   const [routeOutIface, setRouteOutIface] = useState('eth0');
 
+  const [fwAction, setFwAction] = useState<'Allow' | 'Deny'>('Deny');
+  const [fwProto, setFwProto] = useState<'Any' | 'ICMP' | 'TCP' | 'UDP'>('ICMP');
+  const [fwSrc, setFwSrc] = useState('');
+  const [fwDst, setFwDst] = useState('');
+  const [fwPort, setFwPort] = useState('');
+
   const [routerIfaces, setRouterIfaces] = useState<Record<string, { ip: string; prefix: string }>>({});
 
   useEffect(() => {
@@ -129,9 +140,10 @@ export function InspectorPanel() {
   }, [host?.id, host?.ip, host?.prefix_len, host?.gateway, host?.dns_servers?.join(',')]);
 
   useEffect(() => {
-    if (router) {
+    const l3 = router ?? firewall;
+    if (l3) {
       const next: Record<string, { ip: string; prefix: string }> = {};
-      for (const iface of router.interfaces) {
+      for (const iface of l3.interfaces) {
         next[iface.id] = {
           ip: iface.ip ?? '',
           prefix: String(iface.prefix_len ?? 24),
@@ -139,7 +151,7 @@ export function InspectorPanel() {
       }
       setRouterIfaces(next);
     }
-  }, [router?.id, router?.interfaces.length]);
+  }, [router?.id, router?.interfaces.length, firewall?.id, firewall?.interfaces.length]);
 
   useEffect(() => {
     if (pluginCatalog.length > 0 && !selectedPluginToAdd) {
@@ -640,6 +652,218 @@ export function InspectorPanel() {
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {firewall && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Default Policy
+                  </span>
+                  <div className="flex gap-1">
+                    {(['Allow', 'Deny'] as const).map((pol) => (
+                      <button
+                        key={pol}
+                        onClick={() => setFirewallPolicy(firewall.id, pol)}
+                        className={`rounded px-2.5 py-1 text-[11px] font-medium ${
+                          firewall.default_policy === pol
+                            ? pol === 'Allow'
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-rose-600 text-white'
+                            : 'bg-slate-800 text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {pol}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex justify-between rounded-lg border border-slate-800 bg-slate-950 px-3 py-1.5 font-mono text-[11px]">
+                  <span className="text-emerald-400">Allowed: {firewall.packets_allowed}</span>
+                  <span className="text-rose-400">Dropped: {firewall.packets_dropped}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t border-slate-800 pt-3">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Firewall Rules (Top-Down)
+                </div>
+                {firewall.rules.length > 0 && (
+                  <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-[11px]">
+                    {firewall.rules.map((r) => (
+                      <div key={r.id} className="flex items-center justify-between gap-2">
+                        <div className="min-w-0 truncate">
+                          <span
+                            className={
+                              r.action === 'Allow' ? 'text-emerald-400' : 'text-rose-400'
+                            }
+                          >
+                            #{r.id} {r.action.toUpperCase()}
+                          </span>{' '}
+                          <span className="text-slate-300">
+                            {r.protocol} {r.src_cidr ?? '*'} → {r.dst_cidr ?? '*'}
+                            {r.dst_port ? `:${r.dst_port}` : ''}
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          <span className="text-[10px] text-slate-500">{r.hits} hits</span>
+                          <button
+                            onClick={() => removeFirewallRule(firewall.id, r.id)}
+                            className="rounded p-0.5 text-slate-500 hover:text-red-400"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="space-y-1.5 rounded-lg border border-slate-800 bg-slate-950 p-2.5">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <select
+                      value={fwAction}
+                      onChange={(e) => setFwAction(e.target.value as 'Allow' | 'Deny')}
+                      className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                    >
+                      <option value="Deny">Deny</option>
+                      <option value="Allow">Allow</option>
+                    </select>
+                    <select
+                      value={fwProto}
+                      onChange={(e) =>
+                        setFwProto(e.target.value as 'Any' | 'ICMP' | 'TCP' | 'UDP')
+                      }
+                      className="rounded border border-slate-700 bg-slate-900 px-2 py-1 text-xs text-slate-100"
+                    >
+                      <option value="Any">Any</option>
+                      <option value="ICMP">ICMP</option>
+                      <option value="TCP">TCP</option>
+                      <option value="UDP">UDP</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <input
+                      value={fwSrc}
+                      onChange={(e) => setFwSrc(e.target.value)}
+                      placeholder="Src CIDR (any)"
+                      className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                    />
+                    <input
+                      value={fwDst}
+                      onChange={(e) => setFwDst(e.target.value)}
+                      placeholder="Dst CIDR (any)"
+                      className="rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                    />
+                  </div>
+                  <input
+                    value={fwPort}
+                    onChange={(e) => setFwPort(e.target.value)}
+                    placeholder="Dst Port (optional, e.g. 80)"
+                    className="w-full rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                  />
+                  <button
+                    onClick={() => {
+                      const portNum = fwPort.trim() ? Number(fwPort.trim()) : null;
+                      addFirewallRule(
+                        firewall.id,
+                        fwAction,
+                        fwProto,
+                        fwSrc.trim() || null,
+                        fwDst.trim() || null,
+                        portNum && !Number.isNaN(portNum) ? portNum : null
+                      );
+                      setFwSrc('');
+                      setFwDst('');
+                      setFwPort('');
+                    }}
+                    className="w-full rounded bg-rose-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-rose-500"
+                  >
+                    Add Firewall Rule
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2 border-t border-slate-800 pt-3">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  Firewall Interfaces
+                </div>
+                {firewall.interfaces.length === 0 ? (
+                  <div className="rounded-lg border border-slate-800 bg-slate-950 p-3 text-xs text-slate-500">
+                    Connect cables to create firewall interfaces.
+                  </div>
+                ) : (
+                  firewall.interfaces.map((iface) => {
+                    const draft = routerIfaces[iface.id] ?? {
+                      ip: iface.ip ?? '',
+                      prefix: String(iface.prefix_len ?? 24),
+                    };
+                    return (
+                      <div
+                        key={iface.id}
+                        className="space-y-2 rounded-lg border border-slate-800 bg-slate-950 p-2.5"
+                      >
+                        <div className="flex justify-between font-mono text-[11px]">
+                          <span className="font-semibold text-rose-400">{iface.id}</span>
+                          <span className="text-slate-500">{iface.mac}</span>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <input
+                            value={draft.ip}
+                            onChange={(e) =>
+                              setRouterIfaces((prev) => ({
+                                ...prev,
+                                [iface.id]: { ...draft, ip: e.target.value },
+                              }))
+                            }
+                            placeholder="10.0.1.1"
+                            className="flex-1 rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                          />
+                          <input
+                            value={draft.prefix}
+                            onChange={(e) =>
+                              setRouterIfaces((prev) => ({
+                                ...prev,
+                                [iface.id]: { ...draft, prefix: e.target.value },
+                              }))
+                            }
+                            className="w-12 rounded border border-slate-700 bg-slate-900 px-2 py-1 font-mono text-xs text-slate-100"
+                          />
+                          <button
+                            onClick={() =>
+                              configureInterface(
+                                firewall.id,
+                                iface.id,
+                                draft.ip.trim() || null,
+                                Number(draft.prefix) || 24,
+                                null
+                              )
+                            }
+                            className="rounded bg-rose-600 px-2 py-1 text-xs font-medium text-white hover:bg-rose-500"
+                          >
+                            Set
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {firewall.logs.length > 0 && (
+                <div className="space-y-1.5 border-t border-slate-800 pt-3">
+                  <div className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                    Drop Logs
+                  </div>
+                  <div className="max-h-32 overflow-y-auto rounded-lg border border-slate-800 bg-slate-950 p-2 font-mono text-[10px] text-rose-300">
+                    {firewall.logs.slice().reverse().map((l, i) => (
+                      <div key={i}>{l}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>

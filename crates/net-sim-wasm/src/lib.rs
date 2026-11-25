@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 use std::net::Ipv4Addr;
 
 use net_sim_core::{
-    CableConfig, CapturedPacket, EdgeAnimationEvent, Endpoint, NetworkWorld, PingReply, RouteEntry,
+    CableConfig, CapturedPacket, EdgeAnimationEvent, Endpoint, FirewallAction, FirewallProtocol,
+    FirewallRule, NetworkWorld, PingReply, RouteEntry,
 };
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
@@ -62,6 +63,19 @@ pub struct RouterStateDto {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FirewallStateDto {
+    pub id: String,
+    pub name: String,
+    pub interfaces: Vec<RouterInterfaceDto>,
+    pub routes: Vec<RouteEntry>,
+    pub rules: Vec<FirewallRule>,
+    pub default_policy: FirewallAction,
+    pub packets_allowed: u64,
+    pub packets_dropped: u64,
+    pub logs: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CableStatsDto {
     pub id: String,
     pub packets_sent: u64,
@@ -77,6 +91,7 @@ pub struct SimulationBatchDto {
     pub hosts: BTreeMap<String, HostStateDto>,
     pub switches: BTreeMap<String, SwitchStateDto>,
     pub routers: BTreeMap<String, RouterStateDto>,
+    pub firewalls: BTreeMap<String, FirewallStateDto>,
     pub cables: BTreeMap<String, CableStatsDto>,
 }
 
@@ -123,6 +138,10 @@ impl WasmSimulator {
             }
             "router" => {
                 self.world.add_router(id, name);
+                Ok(())
+            }
+            "firewall" => {
+                self.world.add_firewall(id, name);
                 Ok(())
             }
             _ => Err(JsValue::from_str(&format!("Unknown node kind: {kind}"))),
@@ -208,6 +227,10 @@ impl WasmSimulator {
             self.world
                 .configure_router_interface(node_id, port_id, parsed_ip, prefix_len)
                 .map_err(|e| JsValue::from_str(&e))
+        } else if self.world.firewalls.contains_key(node_id) {
+            self.world
+                .configure_firewall_interface(node_id, port_id, parsed_ip, prefix_len)
+                .map_err(|e| JsValue::from_str(&e))
         } else {
             Err(JsValue::from_str(&format!("Node {node_id} not found or has no L3 interfaces")))
         }
@@ -232,22 +255,75 @@ impl WasmSimulator {
             ),
             _ => None,
         };
-        self.world
-            .add_router_route(
-                router_id,
-                RouteEntry {
-                    network: net,
-                    prefix_len,
-                    next_hop: nh,
-                    out_iface: out_iface.to_string(),
-                },
-            )
-            .map_err(|e| JsValue::from_str(&e))
+        let entry = RouteEntry {
+            network: net,
+            prefix_len,
+            next_hop: nh,
+            out_iface: out_iface.to_string(),
+        };
+        if self.world.firewalls.contains_key(router_id) {
+            self.world
+                .add_firewall_route(router_id, entry)
+                .map_err(|e| JsValue::from_str(&e))
+        } else {
+            self.world
+                .add_router_route(router_id, entry)
+                .map_err(|e| JsValue::from_str(&e))
+        }
     }
 
     pub fn remove_router_route(&mut self, router_id: &str, index: usize) -> Result<(), JsValue> {
+        if self.world.firewalls.contains_key(router_id) {
+            self.world
+                .remove_firewall_route(router_id, index)
+                .map_err(|e| JsValue::from_str(&e))
+        } else {
+            self.world
+                .remove_router_route(router_id, index)
+                .map_err(|e| JsValue::from_str(&e))
+        }
+    }
+
+    pub fn add_firewall_rule(
+        &mut self,
+        fw_id: &str,
+        action: &str,
+        protocol: &str,
+        src_cidr: Option<String>,
+        dst_cidr: Option<String>,
+        dst_port: Option<u16>,
+    ) -> Result<u64, JsValue> {
+        let act = match action.to_lowercase().as_str() {
+            "allow" => FirewallAction::Allow,
+            "deny" => FirewallAction::Deny,
+            _ => return Err(JsValue::from_str(&format!("Invalid action: {action}"))),
+        };
+        let proto = match protocol.to_uppercase().as_str() {
+            "ANY" => FirewallProtocol::Any,
+            "ICMP" => FirewallProtocol::ICMP,
+            "TCP" => FirewallProtocol::TCP,
+            "UDP" => FirewallProtocol::UDP,
+            _ => return Err(JsValue::from_str(&format!("Invalid protocol: {protocol}"))),
+        };
         self.world
-            .remove_router_route(router_id, index)
+            .add_firewall_rule(fw_id, act, proto, src_cidr, dst_cidr, dst_port)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    pub fn remove_firewall_rule(&mut self, fw_id: &str, rule_id: u64) -> Result<(), JsValue> {
+        self.world
+            .remove_firewall_rule(fw_id, rule_id)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    pub fn set_firewall_default_policy(&mut self, fw_id: &str, policy: &str) -> Result<(), JsValue> {
+        let act = match policy.to_lowercase().as_str() {
+            "allow" => FirewallAction::Allow,
+            "deny" => FirewallAction::Deny,
+            _ => return Err(JsValue::from_str(&format!("Invalid policy: {policy}"))),
+        };
+        self.world
+            .set_firewall_default_policy(fw_id, act)
             .map_err(|e| JsValue::from_str(&e))
     }
 
@@ -415,6 +491,37 @@ impl WasmSimulator {
             })
             .collect();
 
+        let firewalls = self
+            .world
+            .firewalls
+            .iter()
+            .map(|(id, fw)| {
+                let interfaces = fw
+                    .router
+                    .interfaces
+                    .values()
+                    .map(|iface| RouterInterfaceDto {
+                        id: iface.id.clone(),
+                        mac: format_mac(&iface.mac),
+                        ip: iface.ip.map(|ip| ip.to_string()),
+                        prefix_len: iface.prefix_len,
+                    })
+                    .collect();
+                let dto = FirewallStateDto {
+                    id: id.clone(),
+                    name: fw.name.clone(),
+                    interfaces,
+                    routes: fw.router.routes.clone(),
+                    rules: fw.rules.clone(),
+                    default_policy: fw.default_policy,
+                    packets_allowed: fw.packets_allowed,
+                    packets_dropped: fw.packets_dropped,
+                    logs: fw.logs.iter().rev().take(30).rev().cloned().collect(),
+                };
+                (id.clone(), dto)
+            })
+            .collect();
+
         let cables = self
             .world
             .cables
@@ -437,6 +544,7 @@ impl WasmSimulator {
             hosts,
             switches,
             routers,
+            firewalls,
             cables,
         };
 

@@ -4,6 +4,7 @@ use std::net::Ipv4Addr;
 use serde::{Deserialize, Serialize};
 
 use crate::cable::{CableConfig, CableDirection, Endpoint, VirtualCable};
+use crate::firewall::{FirewallAction, FirewallProtocol, VirtualFirewall};
 use crate::host::VirtualHost;
 use crate::packet::{CapturedPacket, PacketTap};
 use crate::plugin::PluginRegistry;
@@ -16,6 +17,7 @@ pub enum NodeKind {
     Host,
     Switch,
     Router,
+    Firewall,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +36,7 @@ pub struct NetworkWorld {
     pub hosts: BTreeMap<String, VirtualHost>,
     pub switches: BTreeMap<String, VirtualSwitch>,
     pub routers: BTreeMap<String, VirtualRouter>,
+    pub firewalls: BTreeMap<String, VirtualFirewall>,
     pub cables: BTreeMap<String, VirtualCable>,
     /// Maps (node_id, port_id) -> cable_id for O(1) lookup when transmitting.
     port_to_cable: HashMap<(String, String), String>,
@@ -59,6 +62,7 @@ impl NetworkWorld {
             hosts: BTreeMap::new(),
             switches: BTreeMap::new(),
             routers: BTreeMap::new(),
+            firewalls: BTreeMap::new(),
             cables: BTreeMap::new(),
             port_to_cable: HashMap::new(),
             next_mac_seq: 1,
@@ -112,10 +116,22 @@ impl NetworkWorld {
         self.routers.get_mut(&id).unwrap()
     }
 
+    pub fn add_firewall(
+        &mut self,
+        id: impl Into<String>,
+        name: impl Into<String>,
+    ) -> &mut VirtualFirewall {
+        let id = id.into();
+        let fw = VirtualFirewall::new(id.clone(), name);
+        self.firewalls.insert(id.clone(), fw);
+        self.firewalls.get_mut(&id).unwrap()
+    }
+
     pub fn remove_node(&mut self, node_id: &str) {
         self.hosts.remove(node_id);
         self.switches.remove(node_id);
         self.routers.remove(node_id);
+        self.firewalls.remove(node_id);
 
         let attached_cables: Vec<String> = self
             .cables
@@ -172,6 +188,17 @@ impl NetworkWorld {
                 let mac = self.alloc_mac();
                 if let Some(r) = self.routers.get_mut(&ep.node_id) {
                     r.add_interface(RouterInterface::new(ep.port_id.clone(), mac));
+                }
+            }
+        } else if self.firewalls.contains_key(&ep.node_id) {
+            let needs_iface = self
+                .firewalls
+                .get(&ep.node_id)
+                .map_or(false, |fw| !fw.router.interfaces.contains_key(&ep.port_id));
+            if needs_iface {
+                let mac = self.alloc_mac();
+                if let Some(fw) = self.firewalls.get_mut(&ep.node_id) {
+                    fw.add_interface(RouterInterface::new(ep.port_id.clone(), mac));
                 }
             }
         }
@@ -261,6 +288,88 @@ impl NetworkWorld {
         Ok(())
     }
 
+    pub fn configure_firewall_interface(
+        &mut self,
+        fw_id: &str,
+        iface_id: &str,
+        ip: Option<Ipv4Addr>,
+        prefix_len: u8,
+    ) -> Result<(), String> {
+        if !self.firewalls.contains_key(fw_id) {
+            return Err(format!("Firewall {fw_id} not found"));
+        }
+        let needs_iface = self
+            .firewalls
+            .get(fw_id)
+            .map_or(false, |fw| !fw.router.interfaces.contains_key(iface_id));
+        if needs_iface {
+            let mac = self.alloc_mac();
+            if let Some(fw) = self.firewalls.get_mut(fw_id) {
+                fw.add_interface(RouterInterface::new(iface_id, mac));
+            }
+        }
+        self.firewalls
+            .get_mut(fw_id)
+            .unwrap()
+            .configure_interface(iface_id, ip, prefix_len)
+    }
+
+    pub fn add_firewall_route(&mut self, fw_id: &str, route: RouteEntry) -> Result<(), String> {
+        let fw = self
+            .firewalls
+            .get_mut(fw_id)
+            .ok_or_else(|| format!("Firewall {fw_id} not found"))?;
+        fw.add_route(route);
+        Ok(())
+    }
+
+    pub fn remove_firewall_route(&mut self, fw_id: &str, index: usize) -> Result<(), String> {
+        let fw = self
+            .firewalls
+            .get_mut(fw_id)
+            .ok_or_else(|| format!("Firewall {fw_id} not found"))?;
+        fw.remove_route(index);
+        Ok(())
+    }
+
+    pub fn add_firewall_rule(
+        &mut self,
+        fw_id: &str,
+        action: FirewallAction,
+        protocol: FirewallProtocol,
+        src_cidr: Option<String>,
+        dst_cidr: Option<String>,
+        dst_port: Option<u16>,
+    ) -> Result<u64, String> {
+        let fw = self
+            .firewalls
+            .get_mut(fw_id)
+            .ok_or_else(|| format!("Firewall {fw_id} not found"))?;
+        Ok(fw.add_rule(action, protocol, src_cidr, dst_cidr, dst_port))
+    }
+
+    pub fn remove_firewall_rule(&mut self, fw_id: &str, rule_id: u64) -> Result<(), String> {
+        let fw = self
+            .firewalls
+            .get_mut(fw_id)
+            .ok_or_else(|| format!("Firewall {fw_id} not found"))?;
+        fw.remove_rule(rule_id);
+        Ok(())
+    }
+
+    pub fn set_firewall_default_policy(
+        &mut self,
+        fw_id: &str,
+        policy: FirewallAction,
+    ) -> Result<(), String> {
+        let fw = self
+            .firewalls
+            .get_mut(fw_id)
+            .ok_or_else(|| format!("Firewall {fw_id} not found"))?;
+        fw.default_policy = policy;
+        Ok(())
+    }
+
     pub fn send_ping(
         &mut self,
         host_id: &str,
@@ -306,6 +415,11 @@ impl NetworkWorld {
                 }
             } else if let Some(router) = self.routers.get_mut(&target.node_id) {
                 let forwarded = router.process_frame(&target.port_id, frame, now_ms);
+                for (out_iface, out_frame) in forwarded {
+                    outbound.push((Endpoint::new(target.node_id.clone(), out_iface), out_frame));
+                }
+            } else if let Some(fw) = self.firewalls.get_mut(&target.node_id) {
+                let forwarded = fw.process_frame(&target.port_id, frame, now_ms);
                 for (out_iface, out_frame) in forwarded {
                     outbound.push((Endpoint::new(target.node_id.clone(), out_iface), out_frame));
                 }

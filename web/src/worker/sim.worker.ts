@@ -114,6 +114,25 @@ self.onmessage = async (event: MessageEvent<WorkerCommand>) => {
         sim.remove_router_route(cmd.router_id, cmd.index);
         flushBatch();
         break;
+      case 'ADD_FIREWALL_RULE':
+        sim.add_firewall_rule(
+          cmd.fw_id,
+          cmd.action,
+          cmd.protocol,
+          cmd.src_cidr,
+          cmd.dst_cidr,
+          cmd.dst_port ?? undefined
+        );
+        flushBatch();
+        break;
+      case 'REMOVE_FIREWALL_RULE':
+        sim.remove_firewall_rule(cmd.fw_id, BigInt(cmd.rule_id));
+        flushBatch();
+        break;
+      case 'SET_FIREWALL_POLICY':
+        sim.set_firewall_default_policy(cmd.fw_id, cmd.policy);
+        flushBatch();
+        break;
       case 'SEND_PING':
         sim.send_ping(cmd.host_id, cmd.target_ip, cmd.ident, cmd.seq);
         flushBatch();

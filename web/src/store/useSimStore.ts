@@ -13,6 +13,7 @@ import type {
   CableStats,
   CapturedPacket,
   EdgeAnimationEvent,
+  FirewallState,
   HostState,
   LinkParams,
   NodeKind,
@@ -61,6 +62,7 @@ interface SimStore {
   hosts: Record<string, HostState>;
   switches: Record<string, SwitchState>;
   routers: Record<string, RouterState>;
+  firewalls: Record<string, FirewallState>;
   cables: Record<string, CableStats>;
   activePackets: ActivePacketDot[];
   packets: CapturedPacket[];
@@ -111,6 +113,16 @@ interface SimStore {
     outIface: string
   ) => void;
   removeRouterRoute: (routerId: string, index: number) => void;
+  addFirewallRule: (
+    fwId: string,
+    action: string,
+    protocol: string,
+    srcCidr: string | null,
+    dstCidr: string | null,
+    dstPort: number | null
+  ) => void;
+  removeFirewallRule: (fwId: string, ruleId: number) => void;
+  setFirewallPolicy: (fwId: string, policy: string) => void;
   loadTopology: (snapshot: TopologySnapshot) => void;
   exportTopology: () => TopologySnapshot;
   clearError: () => void;
@@ -153,13 +165,14 @@ export const useSimStore = create<SimStore>((set, get) => ({
   hosts: {},
   switches: {},
   routers: {},
+  firewalls: {},
   cables: {},
   activePackets: [],
   packets: [],
   pluginCatalog: [],
   consoleHistory: {},
 
-  nextNodeSeq: { host: 1, switch: 1, router: 1 },
+  nextNodeSeq: { host: 1, switch: 1, router: 1, firewall: 1 },
   nextCableSeq: 1,
   nextPingSeq: 1,
 
@@ -229,6 +242,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
             hosts: batch.hosts,
             switches: batch.switches,
             routers: batch.routers,
+            firewalls: batch.firewalls ?? {},
             cables: batch.cables,
             activePackets: [...validExisting, ...newDots].slice(-120),
             packets: mergedPackets,
@@ -312,9 +326,17 @@ export const useSimStore = create<SimStore>((set, get) => ({
   addNode: (kind, position) => {
     const state = get();
     const seq = state.nextNodeSeq[kind];
-    const prefix = kind === 'host' ? 'h' : kind === 'switch' ? 'sw' : 'r';
+    const prefix =
+      kind === 'host' ? 'h' : kind === 'switch' ? 'sw' : kind === 'router' ? 'r' : 'fw';
     const id = `${prefix}${seq}`;
-    const labelPrefix = kind === 'host' ? 'Host' : kind === 'switch' ? 'Switch' : 'Router';
+    const labelPrefix =
+      kind === 'host'
+        ? 'Host'
+        : kind === 'switch'
+          ? 'Switch'
+          : kind === 'router'
+            ? 'Router'
+            : 'Firewall';
     const name = `${labelPrefix} ${seq}`;
 
     const pos = position ?? {
@@ -447,6 +469,26 @@ export const useSimStore = create<SimStore>((set, get) => ({
     get().postCommand({ type: 'REMOVE_ROUTER_ROUTE', router_id: routerId, index });
   },
 
+  addFirewallRule: (fwId, action, protocol, srcCidr, dstCidr, dstPort) => {
+    get().postCommand({
+      type: 'ADD_FIREWALL_RULE',
+      fw_id: fwId,
+      action,
+      protocol,
+      src_cidr: srcCidr,
+      dst_cidr: dstCidr,
+      dst_port: dstPort,
+    });
+  },
+
+  removeFirewallRule: (fwId, ruleId) => {
+    get().postCommand({ type: 'REMOVE_FIREWALL_RULE', fw_id: fwId, rule_id: ruleId });
+  },
+
+  setFirewallPolicy: (fwId, policy) => {
+    get().postCommand({ type: 'SET_FIREWALL_POLICY', fw_id: fwId, policy });
+  },
+
   loadTopology: (snapshot) => {
     const post = get().postCommand;
     post({ type: 'RESET_WORLD' });
@@ -497,6 +539,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
         host: maxSeq('h'),
         switch: maxSeq('sw'),
         router: maxSeq('r'),
+        firewall: maxSeq('fw'),
       },
       nextCableSeq: maxCable + 1,
     });
@@ -545,7 +588,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
             });
           }
         }
-      } else if (n.kind === 'router') {
+      } else if (n.kind === 'router' || n.kind === 'firewall') {
         for (const iface of n.router_interfaces ?? []) {
           post({
             type: 'CONFIGURE_INTERFACE',
@@ -555,6 +598,22 @@ export const useSimStore = create<SimStore>((set, get) => ({
             prefix_len: iface.prefix_len,
             gateway: null,
           });
+        }
+        if (n.kind === 'firewall') {
+          if (n.firewall_policy) {
+            post({ type: 'SET_FIREWALL_POLICY', fw_id: n.id, policy: n.firewall_policy });
+          }
+          for (const rule of n.firewall_rules ?? []) {
+            post({
+              type: 'ADD_FIREWALL_RULE',
+              fw_id: n.id,
+              action: rule.action,
+              protocol: rule.protocol,
+              src_cidr: rule.src_cidr,
+              dst_cidr: rule.dst_cidr,
+              dst_port: rule.dst_port,
+            });
+          }
         }
       }
     }
@@ -602,6 +661,23 @@ export const useSimStore = create<SimStore>((set, get) => ({
             id: i.id,
             ip: i.ip,
             prefix_len: i.prefix_len,
+          }));
+        }
+      } else if (n.data.kind === 'firewall') {
+        const fw = state.firewalls[n.id];
+        if (fw) {
+          base.router_interfaces = fw.interfaces.map((i) => ({
+            id: i.id,
+            ip: i.ip,
+            prefix_len: i.prefix_len,
+          }));
+          base.firewall_policy = fw.default_policy;
+          base.firewall_rules = fw.rules.map((r) => ({
+            action: r.action,
+            protocol: r.protocol,
+            src_cidr: r.src_cidr,
+            dst_cidr: r.dst_cidr,
+            dst_port: r.dst_port,
           }));
         }
       }

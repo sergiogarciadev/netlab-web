@@ -1,5 +1,5 @@
 import type { DragEvent } from 'react';
-import { Monitor, Network, Router, Plus } from 'lucide-react';
+import { Monitor, Network, Router, Shield, Plus } from 'lucide-react';
 import { useSimStore } from '../store/useSimStore';
 import type { NodeKind } from '../types/sim';
 
@@ -30,6 +30,13 @@ const PALETTE_ITEMS: Array<{
     subtitle: 'Multi-NIC IPv4 router',
     color: 'text-amber-400 bg-amber-500/15',
     Icon: Router,
+  },
+  {
+    kind: 'firewall',
+    title: 'Firewall',
+    subtitle: 'L3 packet filter & ACLs',
+    color: 'text-rose-400 bg-rose-500/15',
+    Icon: Shield,
   },
 ];
 
