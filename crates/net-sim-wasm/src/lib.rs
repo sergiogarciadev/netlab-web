@@ -152,6 +152,12 @@ impl WasmSimulator {
         self.world.remove_node(id);
     }
 
+    pub fn rename_node(&mut self, id: &str, name: &str) -> Result<(), JsValue> {
+        self.world
+            .rename_node(id, name)
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
     pub fn connect_nodes(
         &mut self,
         cable_id: &str,

@@ -177,6 +177,7 @@ export type WorkerCommand =
   | { type: 'STEP'; delta_ms: number }
   | { type: 'ADD_NODE'; id: string; kind: NodeKind; name: string }
   | { type: 'REMOVE_NODE'; id: string }
+  | { type: 'RENAME_NODE'; id: string; name: string }
   | {
       type: 'CONNECT_NODES';
       cable_id: string;

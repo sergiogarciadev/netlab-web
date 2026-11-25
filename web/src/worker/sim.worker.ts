@@ -78,6 +78,10 @@ self.onmessage = async (event: MessageEvent<WorkerCommand>) => {
         sim.remove_node(cmd.id);
         flushBatch();
         break;
+      case 'RENAME_NODE':
+        sim.rename_node(cmd.id, cmd.name);
+        flushBatch();
+        break;
       case 'CONNECT_NODES':
         sim.connect_nodes(cmd.cable_id, cmd.node_a, cmd.port_a, cmd.node_b, cmd.port_b);
         flushBatch();

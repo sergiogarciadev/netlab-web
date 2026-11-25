@@ -145,6 +145,26 @@ impl NetworkWorld {
         }
     }
 
+    pub fn rename_node(&mut self, node_id: &str, name: impl Into<String>) -> Result<(), String> {
+        let name = name.into();
+        if let Some(h) = self.hosts.get_mut(node_id) {
+            h.name = name;
+            Ok(())
+        } else if let Some(sw) = self.switches.get_mut(node_id) {
+            sw.name = name;
+            Ok(())
+        } else if let Some(r) = self.routers.get_mut(node_id) {
+            r.name = name;
+            Ok(())
+        } else if let Some(fw) = self.firewalls.get_mut(node_id) {
+            fw.name = name;
+            fw.router.name = fw.name.clone();
+            Ok(())
+        } else {
+            Err(format!("Node {node_id} not found"))
+        }
+    }
+
     pub fn connect(
         &mut self,
         cable_id: impl Into<String>,

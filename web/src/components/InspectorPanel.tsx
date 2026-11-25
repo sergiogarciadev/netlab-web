@@ -96,6 +96,7 @@ export function InspectorPanel() {
   const removeFirewallRule = useSimStore((s) => s.removeFirewallRule);
   const setFirewallPolicy = useSimStore((s) => s.setFirewallPolicy);
   const removeNode = useSimStore((s) => s.removeNode);
+  const renameNode = useSimStore((s) => s.renameNode);
   const removeEdge = useSimStore((s) => s.removeEdge);
   const selectNode = useSimStore((s) => s.selectNode);
   const selectEdge = useSimStore((s) => s.selectEdge);
@@ -109,6 +110,7 @@ export function InspectorPanel() {
   const firewall = selectedNodeId ? firewalls[selectedNodeId] : undefined;
 
   const [hostTab, setHostTab] = useState<HostTab>('interfaces');
+  const [nameInput, setNameInput] = useState('');
   const [ipInput, setIpInput] = useState('');
   const [prefixInput, setPrefixInput] = useState('24');
   const [gwInput, setGwInput] = useState('');
@@ -129,6 +131,12 @@ export function InspectorPanel() {
   const [fwPort, setFwPort] = useState('');
 
   const [routerIfaces, setRouterIfaces] = useState<Record<string, { ip: string; prefix: string }>>({});
+
+  useEffect(() => {
+    if (selectedNode) {
+      setNameInput(selectedNode.data.label);
+    }
+  }, [selectedNode?.id, selectedNode?.data.label]);
 
   useEffect(() => {
     if (host) {
@@ -172,10 +180,30 @@ export function InspectorPanel() {
     <aside className="flex w-96 flex-col border-l border-slate-800 bg-slate-900/95 p-4 overflow-y-auto">
       {selectedNode && (
         <div className="flex flex-col space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-            <div>
-              <div className="text-sm font-semibold text-slate-100">{selectedNode.data.label}</div>
-              <div className="font-mono text-[11px] text-slate-400">
+          <div className="flex items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div className="min-w-0 flex-1">
+              <input
+                value={nameInput}
+                onChange={(e) => setNameInput(e.target.value)}
+                onBlur={() => {
+                  if (nameInput.trim() && nameInput.trim() !== selectedNode.data.label) {
+                    renameNode(selectedNode.id, nameInput);
+                  } else {
+                    setNameInput(selectedNode.data.label);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  } else if (e.key === 'Escape') {
+                    setNameInput(selectedNode.data.label);
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                aria-label="Device name"
+                className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold text-slate-100 hover:border-slate-700 focus:border-sky-500 focus:bg-slate-950 focus:outline-none"
+              />
+              <div className="px-1 font-mono text-[11px] text-slate-400">
                 {selectedNode.id} · {selectedNode.data.kind.toUpperCase()}
               </div>
             </div>

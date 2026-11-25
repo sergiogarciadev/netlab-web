@@ -85,6 +85,7 @@ interface SimStore {
 
   addNode: (kind: NodeKind, position?: { x: number; y: number }) => string;
   removeNode: (id: string) => void;
+  renameNode: (id: string, name: string) => void;
   removeEdge: (id: string) => void;
   selectNode: (id: string | null) => void;
   selectEdge: (id: string | null) => void;
@@ -370,6 +371,17 @@ export const useSimStore = create<SimStore>((set, get) => ({
       selectedNodeId: state.selectedNodeId === id ? null : state.selectedNodeId,
     });
     state.postCommand({ type: 'REMOVE_NODE', id });
+  },
+
+  renameNode: (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    set((state) => ({
+      nodes: state.nodes.map((n) =>
+        n.id === id ? { ...n, data: { ...n.data, label: trimmed } } : n
+      ),
+    }));
+    get().postCommand({ type: 'RENAME_NODE', id, name: trimmed });
   },
 
   removeEdge: (id) => {
