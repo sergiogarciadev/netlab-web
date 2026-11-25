@@ -5,6 +5,7 @@ import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 
 export default defineConfig({
+  base: process.env.VITE_BASE_PATH || '/',
   plugins: [react(), tailwindcss(), wasm(), topLevelAwait()],
   worker: {
     format: 'es',
