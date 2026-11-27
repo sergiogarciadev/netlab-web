@@ -413,6 +413,26 @@ impl NetworkWorld {
         }
     }
 
+    /// Advance the simulation until the next packet hop (cable delivery or host transmission),
+    /// up to `max_ms` ticks. Returns the number of milliseconds advanced.
+    pub fn step_hop(&mut self, max_ms: u64) -> u64 {
+        let start_anim_len = self.animation_events.len();
+        let mut advanced = 0;
+        while advanced < max_ms {
+            let had_due = self
+                .cables
+                .values()
+                .any(|c| c.next_delivery_ms().map_or(false, |t| t <= self.now_ms));
+            self.tick_one_ms();
+            self.now_ms += 1;
+            advanced += 1;
+            if self.animation_events.len() > start_anim_len || had_due {
+                break;
+            }
+        }
+        advanced
+    }
+
     fn tick_one_ms(&mut self) {
         let now_ms = self.now_ms;
 

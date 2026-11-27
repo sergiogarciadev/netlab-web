@@ -22,6 +22,7 @@ export function Toolbar() {
   const setPlaying = useSimStore((s) => s.setPlaying);
   const setSpeed = useSimStore((s) => s.setSpeed);
   const stepOnce = useSimStore((s) => s.stepOnce);
+  const stepHop = useSimStore((s) => s.stepHop);
   const loadTopology = useSimStore((s) => s.loadTopology);
   const exportTopology = useSimStore((s) => s.exportTopology);
 
@@ -140,13 +141,26 @@ export function Toolbar() {
         </button>
 
         <button
+          onClick={() => {
+            if (playing) setPlaying(false);
+            stepHop();
+          }}
+          disabled={!ready}
+          title="Advance 1 Hop (H)"
+          className="flex items-center gap-1 rounded-lg border border-sky-500/40 bg-sky-500/15 px-2.5 py-1.5 text-xs font-medium text-sky-300 transition-colors hover:bg-sky-500/25 disabled:opacity-40"
+        >
+          <SkipForward className="h-3.5 w-3.5" />
+          Next Hop
+        </button>
+
+        <button
           onClick={() => stepOnce(10)}
           disabled={!ready || playing}
           title="Step +10ms (S)"
           className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-40"
         >
           <SkipForward className="h-3.5 w-3.5" />
-          Step +10ms
+          +10ms
         </button>
 
         <div className="ml-2 flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1">

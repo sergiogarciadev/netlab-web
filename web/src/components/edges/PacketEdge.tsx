@@ -61,10 +61,16 @@ export function PacketEdge({
       const now = performance.now();
 
       const next: Array<{ id: string; x: number; y: number; color: string }> = [];
+      let hasPending = false;
       for (const pkt of edgePackets) {
-        const elapsed = now - pkt.createdAtPerfMs;
+        if (now < pkt.startAtPerfMs) {
+          hasPending = true;
+          continue;
+        }
+        const elapsed = now - pkt.startAtPerfMs;
+        if (elapsed >= pkt.durationMs) continue;
+        hasPending = true;
         const t = Math.min(1, Math.max(0, elapsed / pkt.durationMs));
-        if (t >= 1) continue;
         const dist = pkt.direction === 'AToB' ? t * totalLen : (1 - t) * totalLen;
         const pt = pathEl.getPointAtLength(dist);
         next.push({
@@ -75,7 +81,7 @@ export function PacketEdge({
         });
       }
       setDotPositions(next);
-      if (next.length > 0) {
+      if (hasPending) {
         rafId = requestAnimationFrame(update);
       }
     };
@@ -84,13 +90,16 @@ export function PacketEdge({
     return () => cancelAnimationFrame(rafId);
   }, [edgePackets.length, edgePath]);
 
+  const hasActiveFlow = dotPositions.length > 0;
   const strokeColor = !isUp
     ? '#ef4444'
-    : selected
+    : hasActiveFlow
       ? '#38bdf8'
-      : loss > 0
-        ? '#f59e0b'
-        : '#475569';
+      : selected
+        ? '#38bdf8'
+        : loss > 0
+          ? '#f59e0b'
+          : '#475569';
 
   return (
     <>

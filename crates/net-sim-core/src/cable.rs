@@ -205,4 +205,8 @@ impl VirtualCable {
     pub fn in_flight_count(&self) -> usize {
         self.queue.len()
     }
+
+    pub fn next_delivery_ms(&self) -> Option<u64> {
+        self.queue.peek().map(|f| f.deliver_at_ms)
+    }
 }

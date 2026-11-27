@@ -125,6 +125,10 @@ export default function App() {
       if (e.code === 'Space') {
         e.preventDefault();
         state.setPlaying(!state.playing);
+      } else if (e.key === 'h' || e.key === 'H') {
+        e.preventDefault();
+        if (state.playing) state.setPlaying(false);
+        state.stepHop();
       } else if (e.key === 's' || e.key === 'S') {
         if (!state.playing) {
           e.preventDefault();

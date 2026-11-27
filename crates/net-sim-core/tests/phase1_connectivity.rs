@@ -244,3 +244,42 @@ fn cable_packet_loss_and_link_down() {
     assert!(!replies.is_empty(), "Expected ping replies after link recovery");
     assert_eq!(replies.last().unwrap().seq, 3);
 }
+
+#[test]
+fn step_hop_advances_one_wire_at_a_time() {
+    let mut world = NetworkWorld::new();
+    world.add_host("h1", "Host A");
+    world.add_host("h2", "Host B");
+    world.add_switch("sw1", "Switch 1");
+
+    world
+        .configure_host_ip("h1", Some(Ipv4Addr::new(10, 0, 0, 1)), 24, None)
+        .unwrap();
+    world
+        .configure_host_ip("h2", Some(Ipv4Addr::new(10, 0, 0, 2)), 24, None)
+        .unwrap();
+    world
+        .connect("c1", Endpoint::new("h1", "eth0"), Endpoint::new("sw1", "p1"))
+        .unwrap();
+    world
+        .connect("c2", Endpoint::new("sw1", "p2"), Endpoint::new("h2", "eth0"))
+        .unwrap();
+
+    world
+        .send_ping("h1", Ipv4Addr::new(10, 0, 0, 2), 0x1234, 1)
+        .unwrap();
+
+    // Hop 1: h1 transmits ARP Request onto c1 ONLY (not c2 yet!)
+    world.step_hop(2000);
+    let ev1 = world.drain_animation_events();
+    assert_eq!(ev1.len(), 1);
+    assert_eq!(ev1[0].cable_id, "c1");
+    assert_eq!(ev1[0].protocol, "ARP");
+
+    // Hop 2: c1 delivers ARP Request to sw1, sw1 forwards onto c2
+    world.step_hop(2000);
+    let ev2 = world.drain_animation_events();
+    assert_eq!(ev2.len(), 1);
+    assert_eq!(ev2[0].cable_id, "c2");
+    assert_eq!(ev2[0].protocol, "ARP");
+}

@@ -353,6 +353,10 @@ impl WasmSimulator {
         self.world.step(delta_ms as u64);
     }
 
+    pub fn step_hop(&mut self) -> u32 {
+        self.world.step_hop(2000) as u32
+    }
+
     pub fn export_pcap(&self) -> Vec<u8> {
         self.world.export_pcap()
     }

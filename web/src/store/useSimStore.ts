@@ -31,7 +31,7 @@ export interface ActivePacketDot {
   cable_id: string;
   direction: 'AToB' | 'BToA';
   protocol: string;
-  createdAtPerfMs: number;
+  startAtPerfMs: number;
   durationMs: number;
 }
 
@@ -78,6 +78,7 @@ interface SimStore {
   setPlaying: (playing: boolean) => void;
   setSpeed: (speed: number) => void;
   stepOnce: (deltaMs?: number) => void;
+  stepHop: () => void;
 
   onNodesChange: (changes: NodeChange<Node<NetNodeData>>[]) => void;
   onEdgesChange: (changes: EdgeChange<Edge<NetEdgeData>>[]) => void;
@@ -213,18 +214,23 @@ export const useSimStore = create<SimStore>((set, get) => ({
         const batch: SimulationBatch = msg.batch;
         const nowPerf = performance.now();
         const speed = get().speed;
+        const msScale = Math.max(8, 30 / Math.max(0.25, speed));
+        const batchMinMs =
+          batch.animations.length > 0
+            ? Math.min(...batch.animations.map((a) => a.start_ms))
+            : batch.now_ms;
 
         const newDots: ActivePacketDot[] = batch.animations.map(
           (anim: EdgeAnimationEvent, i: number) => {
             const simDur = Math.max(1, anim.deliver_at_ms - anim.start_ms);
-            // Visual duration scaled so packets are clearly visible (at least 350ms, max 1400ms)
-            const visualDur = Math.min(1400, Math.max(350, (simDur * 25) / Math.max(0.25, speed)));
+            const startOffsetMs = Math.max(0, anim.start_ms - batchMinMs) * msScale;
+            const visualDur = Math.min(1800, Math.max(180, simDur * msScale));
             return {
               id: `${anim.cable_id}-${anim.start_ms}-${i}-${nowPerf}`,
               cable_id: anim.cable_id,
               direction: anim.direction,
               protocol: anim.protocol,
-              createdAtPerfMs: nowPerf,
+              startAtPerfMs: nowPerf + startOffsetMs,
               durationMs: visualDur,
             };
           }
@@ -232,7 +238,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
 
         set((state) => {
           const validExisting = state.activePackets.filter(
-            (p) => nowPerf - p.createdAtPerfMs < p.durationMs + 50
+            (p) => nowPerf < p.startAtPerfMs + p.durationMs + 50
           );
           const mergedPackets =
             batch.packets && batch.packets.length > 0
@@ -273,6 +279,10 @@ export const useSimStore = create<SimStore>((set, get) => ({
 
   stepOnce: (deltaMs = 10) => {
     get().postCommand({ type: 'STEP', delta_ms: deltaMs });
+  },
+
+  stepHop: () => {
+    get().postCommand({ type: 'STEP_HOP' });
   },
 
   onNodesChange: (changes) => {

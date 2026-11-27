@@ -25,7 +25,9 @@ function startLoop() {
   if (loopTimer !== null) return;
   loopTimer = setInterval(() => {
     if (!playing || !sim) return;
-    msAccumulator += 33 * speed;
+    // At 1x speed, advance ~2ms of virtual time per 33ms (~60 sim-ms/sec)
+    // so multi-hop packet traversal is clearly visible hop-by-hop.
+    msAccumulator += 2 * speed;
     const wholeMs = Math.floor(msAccumulator);
     if (wholeMs >= 1) {
       msAccumulator -= wholeMs;
@@ -68,6 +70,10 @@ self.onmessage = async (event: MessageEvent<WorkerCommand>) => {
         break;
       case 'STEP':
         sim.tick(cmd.delta_ms);
+        flushBatch();
+        break;
+      case 'STEP_HOP':
+        sim.step_hop();
         flushBatch();
         break;
       case 'ADD_NODE':

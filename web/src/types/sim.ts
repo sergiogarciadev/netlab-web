@@ -175,6 +175,7 @@ export type WorkerCommand =
   | { type: 'SET_PLAYING'; playing: boolean }
   | { type: 'SET_SPEED'; speed: number }
   | { type: 'STEP'; delta_ms: number }
+  | { type: 'STEP_HOP' }
   | { type: 'ADD_NODE'; id: string; kind: NodeKind; name: string }
   | { type: 'REMOVE_NODE'; id: string }
   | { type: 'RENAME_NODE'; id: string; name: string }
