@@ -8,6 +8,7 @@ import {
   FolderOpen,
   Download,
   Upload,
+  RotateCcw,
 } from 'lucide-react';
 import { useSimStore } from '../store/useSimStore';
 import { STARTER_LABS, type TopologySnapshot } from '../labs/starterLabs';
@@ -23,6 +24,7 @@ export function Toolbar() {
   const setSpeed = useSimStore((s) => s.setSpeed);
   const stepOnce = useSimStore((s) => s.stepOnce);
   const stepHop = useSimStore((s) => s.stepHop);
+  const restartSimulation = useSimStore((s) => s.restartSimulation);
   const loadTopology = useSimStore((s) => s.loadTopology);
   const exportTopology = useSimStore((s) => s.exportTopology);
 
@@ -161,6 +163,16 @@ export function Toolbar() {
         >
           <SkipForward className="h-3.5 w-3.5" />
           +10ms
+        </button>
+
+        <button
+          onClick={restartSimulation}
+          disabled={!ready}
+          title="Restart simulation (preserves Play/Pause state)"
+          className="flex items-center gap-1 rounded-lg border border-slate-700 bg-slate-800 px-2.5 py-1.5 text-xs text-slate-200 transition-colors hover:bg-slate-700 disabled:opacity-40"
+        >
+          <RotateCcw className="h-3.5 w-3.5 text-rose-400" />
+          Restart
         </button>
 
         <div className="ml-2 flex items-center gap-1.5 rounded-lg border border-slate-800 bg-slate-950 px-2.5 py-1">

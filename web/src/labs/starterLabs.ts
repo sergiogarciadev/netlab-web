@@ -19,6 +19,12 @@ export interface SnapshotNode {
     ip: string | null;
     prefix_len: number;
   }>;
+  routes?: Array<{
+    network: string;
+    prefix_len: number;
+    next_hop: string | null;
+    out_iface: string;
+  }>;
   firewall_policy?: FirewallAction;
   firewall_rules?: Array<{
     action: FirewallAction;

@@ -125,7 +125,8 @@ interface SimStore {
   ) => void;
   removeFirewallRule: (fwId: string, ruleId: number) => void;
   setFirewallPolicy: (fwId: string, policy: string) => void;
-  loadTopology: (snapshot: TopologySnapshot) => void;
+  loadTopology: (snapshot: TopologySnapshot, options?: { autoPlay?: boolean }) => void;
+  restartSimulation: () => void;
   exportTopology: () => TopologySnapshot;
   clearError: () => void;
 }
@@ -511,7 +512,8 @@ export const useSimStore = create<SimStore>((set, get) => ({
     get().postCommand({ type: 'SET_FIREWALL_POLICY', fw_id: fwId, policy });
   },
 
-  loadTopology: (snapshot) => {
+  loadTopology: (snapshot, options) => {
+    const autoPlay = options?.autoPlay ?? true;
     const post = get().postCommand;
     post({ type: 'RESET_WORLD' });
 
@@ -621,6 +623,16 @@ export const useSimStore = create<SimStore>((set, get) => ({
             gateway: null,
           });
         }
+        for (const r of n.routes ?? []) {
+          post({
+            type: 'ADD_ROUTER_ROUTE',
+            router_id: n.id,
+            network: r.network,
+            prefix_len: r.prefix_len,
+            next_hop: r.next_hop,
+            out_iface: r.out_iface,
+          });
+        }
         if (n.kind === 'firewall') {
           if (n.firewall_policy) {
             post({ type: 'SET_FIREWALL_POLICY', fw_id: n.id, policy: n.firewall_policy });
@@ -652,7 +664,15 @@ export const useSimStore = create<SimStore>((set, get) => ({
       });
     }
 
-    get().setPlaying(true);
+    if (autoPlay) {
+      get().setPlaying(true);
+    }
+  },
+
+  restartSimulation: () => {
+    const wasPlaying = get().playing;
+    const snap = get().exportTopology();
+    get().loadTopology(snap, { autoPlay: wasPlaying });
   },
 
   exportTopology: () => {
@@ -667,10 +687,13 @@ export const useSimStore = create<SimStore>((set, get) => ({
       if (n.data.kind === 'host') {
         const h = state.hosts[n.id];
         if (h) {
-          base.ip = h.ip;
-          base.prefix_len = h.prefix_len;
-          base.gateway = h.gateway;
-          base.dns = h.dns_servers[0] ?? null;
+          const hasDhcpClient = h.plugins.some((p) => p.id === 'dhcp-client');
+          if (!hasDhcpClient) {
+            base.ip = h.ip;
+            base.prefix_len = h.prefix_len;
+            base.gateway = h.gateway;
+            base.dns = h.dns_servers[0] ?? null;
+          }
           base.plugins = h.plugins.map((p) => ({
             id: p.id,
             config: p.state,
@@ -684,6 +707,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
             ip: i.ip,
             prefix_len: i.prefix_len,
           }));
+          base.routes = r.routes;
         }
       } else if (n.data.kind === 'firewall') {
         const fw = state.firewalls[n.id];
@@ -693,6 +717,7 @@ export const useSimStore = create<SimStore>((set, get) => ({
             ip: i.ip,
             prefix_len: i.prefix_len,
           }));
+          base.routes = fw.routes;
           base.firewall_policy = fw.default_policy;
           base.firewall_rules = fw.rules.map((r) => ({
             action: r.action,
