@@ -114,6 +114,9 @@ impl AppPlugin for DhcpClientPlugin {
 
     fn handle_command(&mut self, cmd: Value, ctx: &mut PluginContext) -> Result<Value, String> {
         let action = cmd.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        if action == "configure" {
+            return Ok(json!({ "ok": true }));
+        }
         if action == "renew" {
             if let Some(h) = self.handle {
                 ctx.sockets.get_mut::<dhcpv4::Socket>(h).reset();

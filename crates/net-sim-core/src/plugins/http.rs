@@ -292,6 +292,9 @@ impl AppPlugin for HttpClientPlugin {
 
     fn handle_command(&mut self, cmd: Value, ctx: &mut PluginContext) -> Result<Value, String> {
         let action = cmd.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        if action == "configure" {
+            return Ok(json!({ "ok": true }));
+        }
         if action != "request" {
             return Err(format!("Unknown http-client command: {action}"));
         }

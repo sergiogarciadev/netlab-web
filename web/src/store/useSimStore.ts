@@ -694,10 +694,12 @@ export const useSimStore = create<SimStore>((set, get) => ({
             base.gateway = h.gateway;
             base.dns = h.dns_servers[0] ?? null;
           }
-          base.plugins = h.plugins.map((p) => ({
-            id: p.id,
-            config: p.state,
-          }));
+          base.plugins = h.plugins.map((p) => {
+            const meta = state.pluginCatalog.find((m) => m.id === p.id);
+            return meta && meta.config_schema.length > 0
+              ? { id: p.id, config: p.state }
+              : { id: p.id };
+          });
         }
       } else if (n.data.kind === 'router') {
         const r = state.routers[n.id];

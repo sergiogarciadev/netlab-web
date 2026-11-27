@@ -301,6 +301,9 @@ impl AppPlugin for DnsResolverPlugin {
 
     fn handle_command(&mut self, cmd: Value, ctx: &mut PluginContext) -> Result<Value, String> {
         let action = cmd.get("command").and_then(|v| v.as_str()).unwrap_or("");
+        if action == "configure" {
+            return Ok(json!({ "ok": true }));
+        }
         if action == "lookup" {
             let hostname = cmd
                 .get("hostname")
