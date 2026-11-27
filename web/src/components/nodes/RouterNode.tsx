@@ -1,6 +1,7 @@
 import { Handle, Position, type NodeProps } from '@xyflow/react';
 import { Router } from 'lucide-react';
 import { useSimStore, type NetNodeData } from '../../store/useSimStore';
+import { NodeCallout } from './NodeCallout';
 
 export function RouterNode({ id, data, selected }: NodeProps) {
   const nodeData = data as NetNodeData;
@@ -8,12 +9,13 @@ export function RouterNode({ id, data, selected }: NodeProps) {
 
   return (
     <div
-      className={`min-w-[160px] rounded-xl border bg-slate-900/95 px-3.5 py-2.5 shadow-lg transition-all ${
+      className={`relative min-w-[160px] rounded-xl border bg-slate-900/95 px-3.5 py-2.5 shadow-lg transition-all ${
         selected
           ? 'border-amber-400 ring-2 ring-amber-400/30'
           : 'border-slate-700 hover:border-slate-500'
       }`}
     >
+      <NodeCallout nodeId={id} />
       <Handle
         type="target"
         position={Position.Left}

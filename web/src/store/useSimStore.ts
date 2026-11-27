@@ -25,6 +25,11 @@ import type {
   WorkerResponse,
 } from '../types/sim';
 import type { SnapshotEdge, SnapshotNode, TopologySnapshot } from '../labs/starterLabs';
+import {
+  buildFirewallDropCallout,
+  explainPacketForNode,
+  type NodeCalloutData,
+} from '../utils/callouts';
 
 export interface ActivePacketDot {
   id: string;
@@ -68,6 +73,8 @@ interface SimStore {
   packets: CapturedPacket[];
   pluginCatalog: PluginMetadata[];
   consoleHistory: Record<string, string[]>;
+  nodeCallouts: Record<string, NodeCalloutData>;
+  awaitingHopCallout: boolean;
 
   nextNodeSeq: Record<NodeKind, number>;
   nextCableSeq: number;
@@ -174,6 +181,8 @@ export const useSimStore = create<SimStore>((set, get) => ({
   packets: [],
   pluginCatalog: [],
   consoleHistory: {},
+  nodeCallouts: {},
+  awaitingHopCallout: false,
 
   nextNodeSeq: { host: 1, switch: 1, router: 1, firewall: 1 },
   nextCableSeq: 1,
@@ -245,6 +254,36 @@ export const useSimStore = create<SimStore>((set, get) => ({
             batch.packets && batch.packets.length > 0
               ? [...state.packets, ...batch.packets].slice(-2000)
               : state.packets;
+
+          let nextCallouts = state.nodeCallouts;
+          let nextAwaiting = state.awaitingHopCallout;
+          if (state.awaitingHopCallout && ((batch.packets?.length ?? 0) > 0 || batch.firewalls)) {
+            const countsBySource: Record<string, number> = {};
+            for (const p of batch.packets ?? []) {
+              countsBySource[p.from_node] = (countsBySource[p.from_node] ?? 0) + 1;
+            }
+            const generated: Record<string, NodeCalloutData> = {};
+            for (const p of batch.packets ?? []) {
+              const node = state.nodes.find((n) => n.id === p.from_node);
+              const kind = node?.data.kind ?? 'host';
+              generated[p.from_node] = explainPacketForNode(
+                p,
+                kind,
+                (countsBySource[p.from_node] ?? 0) > 1
+              );
+            }
+            for (const [fwId, fw] of Object.entries(batch.firewalls ?? {})) {
+              const prevDrops = state.firewalls[fwId]?.packets_dropped ?? 0;
+              if (fw.packets_dropped > prevDrops) {
+                generated[fwId] = buildFirewallDropCallout(fw);
+              }
+            }
+            if (Object.keys(generated).length > 0) {
+              nextCallouts = generated;
+              nextAwaiting = false;
+            }
+          }
+
           return {
             nowMs: batch.now_ms,
             hosts: batch.hosts,
@@ -254,6 +293,8 @@ export const useSimStore = create<SimStore>((set, get) => ({
             cables: batch.cables,
             activePackets: [...validExisting, ...newDots].slice(-120),
             packets: mergedPackets,
+            nodeCallouts: nextCallouts,
+            awaitingHopCallout: nextAwaiting,
           };
         });
       }
@@ -269,7 +310,11 @@ export const useSimStore = create<SimStore>((set, get) => ({
   },
 
   setPlaying: (playing) => {
-    set({ playing });
+    set((state) => ({
+      playing,
+      nodeCallouts: playing ? {} : state.nodeCallouts,
+      awaitingHopCallout: playing ? false : state.awaitingHopCallout,
+    }));
     get().postCommand({ type: 'SET_PLAYING', playing });
   },
 
@@ -279,10 +324,12 @@ export const useSimStore = create<SimStore>((set, get) => ({
   },
 
   stepOnce: (deltaMs = 10) => {
+    set({ nodeCallouts: {}, awaitingHopCallout: false });
     get().postCommand({ type: 'STEP', delta_ms: deltaMs });
   },
 
   stepHop: () => {
+    set({ nodeCallouts: {}, awaitingHopCallout: true });
     get().postCommand({ type: 'STEP_HOP' });
   },
 
